@@ -54,7 +54,7 @@
             if (xhr.status >= 200 && xhr.status < 400) {
               var src = xhr.responseText;
               if (globalThis.__ryuApplyReplacements) src = globalThis.__ryuApplyReplacements(src);
-              el.text = src + '\n//# sourceURL=ryuten-patched.js';
+              el.text = 'globalThis.__ryuLocalLeftwardSourcePatch=true;\n' + src + '\n//# sourceURL=ryuten-patched.js';
               return;
             }
           } catch (e) {
