@@ -175,6 +175,12 @@
   if (theme.pelletImgur        === undefined) theme.pelletImgur        = '';
   theme.pelletStyle = theme.pelletImgurOn ? 2 : (theme.pelletEmojiOn ? 1 : 0);
   saveTheme(theme);
+  // Tampermonkey immediate init — don't wait for first 250ms tick
+  (function(){try{
+    globalThis.__ryuHideNativeTag = !!theme.leftwardTag;
+    globalThis.__ryuNameTintLocked = true;
+    globalThis.__ryuNameTint = 0xFFFFFF;
+  }catch(_e){}})();
   globalThis.__ryuHideNativeTag = theme.leftwardTag !== false;
   globalThis.__ryuPelletStyle = theme.useDefault ? 0 : (theme.pelletImgurOn ? 2 : (theme.pelletEmojiOn ? 1 : 0));
   globalThis.__ryuPelletEmoji = theme.pelletEmoji || '\uD83D\uDD25';
@@ -419,7 +425,7 @@
 
       const t = loadTheme();
       ctx.fillStyle = isPlayerName
-        ? '#ffffff'
+        ? (_ft_useDefault ? '#ffffff' : (t.color || '#ff69b4'))
         : (_ft_syncMass ? (t.color || '#ff69b4') : (t.massColor || '#ff69b4'));
 
       return prev;
