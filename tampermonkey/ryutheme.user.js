@@ -9,17 +9,17 @@
 // @grant        none
 // @require      https://cdn.jsdelivr.net/npm/lottie-web@5/build/player/lottie.min.js
 // @require      https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js
-// @require      https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/tampermonkey/ryuten-loader.js
-// @require      https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/tampermonkey/loading.js
-// @require      https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/tampermonkey/ryutheme-server.js
-// @require      https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/tampermonkey/ryutheme.js
-// @require      https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/tampermonkey/interface.js
-// @require      https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/tampermonkey/replaysys.js
-// @require      https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/tampermonkey/profiles.js
-// @require      https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/tampermonkey/leaderboard.js
-// @require      https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/tampermonkey/minimap.js
-// @require      https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/tampermonkey/chatbox.js
-// @require      https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/tampermonkey/team.js
+// @require      https://raw.githubusercontent.com/ProjectLiminal/ryutheme/main/tampermonkey/ryuten-loader.js
+// @require      https://raw.githubusercontent.com/ProjectLiminal/ryutheme/main/tampermonkey/loading.js
+// @require      https://raw.githubusercontent.com/ProjectLiminal/ryutheme/main/tampermonkey/ryutheme-server.js
+// @require      https://raw.githubusercontent.com/ProjectLiminal/ryutheme/main/tampermonkey/ryutheme.js
+// @require      https://raw.githubusercontent.com/ProjectLiminal/ryutheme/main/tampermonkey/interface.js
+// @require      https://raw.githubusercontent.com/ProjectLiminal/ryutheme/main/tampermonkey/replaysys.js
+// @require      https://raw.githubusercontent.com/ProjectLiminal/ryutheme/main/tampermonkey/profiles.js
+// @require      https://raw.githubusercontent.com/ProjectLiminal/ryutheme/main/tampermonkey/leaderboard.js
+// @require      https://raw.githubusercontent.com/ProjectLiminal/ryutheme/main/tampermonkey/minimap.js
+// @require      https://raw.githubusercontent.com/ProjectLiminal/ryutheme/main/tampermonkey/chatbox.js
+// @require      https://raw.githubusercontent.com/ProjectLiminal/ryutheme/main/tampermonkey/team.js
 // ==/UserScript==
 
 (function () {
@@ -28,7 +28,7 @@
   // ── CONFIG ──────────────────────────────────────────────────────────────────
   // Base URL where your tampermonkey/ folder is hosted (same as the @require paths above).
   // Used to resolve emotes/ and fonts/ asset paths.
-  const ASSETS_BASE = 'https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/tampermonkey';
+  const ASSETS_BASE = 'https://raw.githubusercontent.com/ProjectLiminal/ryutheme/main/tampermonkey';
 
   // ── SET EXT ORIGIN (emote system reads this) ────────────────────────────────
   document.documentElement.setAttribute('data-ryu-ext-origin', ASSETS_BASE);
