@@ -1,6 +1,3 @@
-/* leaderboard.js — auto-deferred for Tampermonkey */
-(function(){
-  function __ryuRun(){
 // leaderboard UI
 
 (function () {
@@ -966,12 +963,4 @@
   if (!_t0.useDefault && _t0.lbThemeOn !== false) initLB();
 
   console.log('[RyuTheme] LB LOADED.');
-})();
-
-  }
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded',__ryuRun);
-  } else {
-    __ryuRun();
-  }
 })();

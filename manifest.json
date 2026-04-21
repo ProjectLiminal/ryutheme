@@ -1,0 +1,114 @@
+{
+  "manifest_version": 3,
+  "name": "RYUTHEME v1.3",
+  "version": "1.3",
+  "permissions": ["declarativeNetRequest"],
+  "host_permissions": [
+    "https://ryuten.io/*"
+  ],
+  "action": {
+    "default_title": "RyuTheme",
+    "default_icon": {
+      "16": "icon.png",
+      "32": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "icons": {
+    "16": "icon.png",
+    "32": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "declarative_net_request": {
+    "rule_resources": [{
+      "id": "ruleset1",
+      "enabled": true,
+      "path": "rules.json"
+    }]
+  },
+  "web_accessible_resources": [{
+    "resources": ["fonts/*", "emotes/*", "Albion.wasm", "ryuten-patched.js", "vendor/pickr.min.js", "vendor/pickr.nano.min.css"],
+    "matches": ["https://ryuten.io/*"]
+  }],
+  "content_scripts": [
+    {
+      "matches": ["https://ryuten.io/*"],
+      "js": ["loading.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://ryuten.io/*"],
+      "js": ["extension-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://ryuten.io/*"],
+      "js": ["ryutheme-server.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://ryuten.io/*"],
+      "js": ["vendor/lottie.min.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://ryuten.io/*"],
+      "js": ["vendor/pickr.min.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://ryuten.io/*"],
+      "js": ["ryutheme.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://ryuten.io/*"],
+      "js": ["replaysys.js"],
+      "run_at": "document_end",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://ryuten.io/*"],
+      "js": ["interface.js"],
+      "run_at": "document_end",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://ryuten.io/*"],
+      "js": ["profiles.js"],
+      "run_at": "document_end",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://ryuten.io/*"],
+      "js": ["leaderboard.js"],
+      "run_at": "document_end",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://ryuten.io/*"],
+      "js": ["minimap.js"],
+      "run_at": "document_end",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://ryuten.io/*"],
+      "js": ["chatbox.js"],
+      "run_at": "document_end",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://ryuten.io/*"],
+      "js": ["team.js"],
+      "run_at": "document_end",
+      "world": "MAIN"
+    }
+  ]
+}

@@ -1,6 +1,3 @@
-/* team.js — auto-deferred for Tampermonkey */
-(function(){
-  function __ryuRun(){
 // team panel UI
 
 (function () {
@@ -237,11 +234,4 @@
   }, 500);
 
   console.log('[RyuTheme] TEAM PANEL LOADED.');
-})();
-  }
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded',__ryuRun);
-  } else {
-    __ryuRun();
-  }
 })();

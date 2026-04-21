@@ -1,6 +1,3 @@
-/* minimap.js — auto-deferred for Tampermonkey */
-(function(){
-  function __ryuRun(){
 // minimap UI
 
 (function () {
@@ -582,12 +579,4 @@
   }, 500);
 
   console.log('[RyuTheme] MINIMAP LOADED.');
-})();
-
-  }
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded',__ryuRun);
-  } else {
-    __ryuRun();
-  }
 })();

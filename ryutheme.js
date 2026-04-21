@@ -175,12 +175,6 @@
   if (theme.pelletImgur        === undefined) theme.pelletImgur        = '';
   theme.pelletStyle = theme.pelletImgurOn ? 2 : (theme.pelletEmojiOn ? 1 : 0);
   saveTheme(theme);
-  // Tampermonkey immediate init — don't wait for first 250ms tick
-  (function(){try{
-    globalThis.__ryuHideNativeTag = !!theme.leftwardTag;
-    globalThis.__ryuNameTintLocked = true;
-    globalThis.__ryuNameTint = 0xFFFFFF;
-  }catch(_e){}})();
   globalThis.__ryuHideNativeTag = theme.leftwardTag !== false;
   globalThis.__ryuPelletStyle = theme.useDefault ? 0 : (theme.pelletImgurOn ? 2 : (theme.pelletEmojiOn ? 1 : 0));
   globalThis.__ryuPelletEmoji = theme.pelletEmoji || '\uD83D\uDD25';
@@ -308,13 +302,10 @@
       + '&display=swap';
     (document.head || document.documentElement).appendChild(link);
     // local Geogrotesque
-    {
-      var _extBase = document.documentElement.getAttribute('data-ryu-ext-origin') || '';
-      if (_extBase) {
-        const geoStyle = document.createElement('style');
-        geoStyle.textContent = '@font-face{font-family:"Geogrotesque Cyr";src:url("' + _extBase + '/fonts/GeogrotesqueCyr-Regular.woff2") format("woff2");font-weight:400;font-style:normal;}';
-        (document.head || document.documentElement).appendChild(geoStyle);
-      }
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) {
+      const geoStyle = document.createElement('style');
+      geoStyle.textContent = '@font-face{font-family:"Geogrotesque Cyr";src:url("' + chrome.runtime.getURL('fonts/GeogrotesqueCyr-Regular.woff2') + '") format("woff2");font-weight:400;font-style:normal;}';
+      (document.head || document.documentElement).appendChild(geoStyle);
     }
   }
   if (document.head) injectFonts();
@@ -425,7 +416,7 @@
 
       const t = loadTheme();
       ctx.fillStyle = isPlayerName
-        ? (_ft_useDefault ? '#ffffff' : (t.color || '#ff69b4'))
+        ? '#ffffff'
         : (_ft_syncMass ? (t.color || '#ff69b4') : (t.massColor || '#ff69b4'));
 
       return prev;

@@ -1,6 +1,3 @@
-/* replaysys.js — auto-deferred for Tampermonkey */
-(function(){
-  function __ryuRun(){
 (function() {
   'use strict';
 
@@ -1174,11 +1171,4 @@
   globalThis.injectReplaysStyle    = injectReplaysStyle;
   globalThis.injectReplaysRedesign = injectReplaysRedesign;
 
-})();
-  }
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded',__ryuRun);
-  } else {
-    __ryuRun();
-  }
 })();

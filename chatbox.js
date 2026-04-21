@@ -1,6 +1,3 @@
-/* chatbox.js — auto-deferred for Tampermonkey */
-(function(){
-  function __ryuRun(){
 // chatbox UI
 
 (function () {
@@ -1268,12 +1265,4 @@
   }, 500);
 
   console.log('[RyuTheme] CHATBOX LOADED.');
-})();
-
-  }
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded',__ryuRun);
-  } else {
-    __ryuRun();
-  }
 })();

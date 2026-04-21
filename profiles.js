@@ -1,6 +1,3 @@
-/* profiles.js — auto-deferred for Tampermonkey */
-(function(){
-  function __ryuRun(){
 (function () {
   'use strict';
 
@@ -350,12 +347,4 @@
   if (document.body) boot();
   else document.addEventListener('DOMContentLoaded', boot);
 
-})();
-
-  }
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded',__ryuRun);
-  } else {
-    __ryuRun();
-  }
 })();

@@ -1,6 +1,3 @@
-/* interface.js — auto-deferred for Tampermonkey */
-(function(){
-  function __ryuRun(){
 (function () {
   'use strict';
 
@@ -4690,7 +4687,7 @@
           var pLink = document.createElement('link');
           pLink.id = 'ryu-pickr-css';
           pLink.rel = 'stylesheet';
-          pLink.href = 'https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/nano.min.css';
+          pLink.href = chrome.runtime.getURL('vendor/pickr.nano.min.css');
           document.head.appendChild(pLink);
         }
 
@@ -4754,7 +4751,7 @@
           createPickr();
         } else {
           var script = document.createElement('script');
-          script.src = 'https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js';
+          script.src = chrome.runtime.getURL('vendor/pickr.min.js');
           script.onload = function() { createPickr(); };
           document.head.appendChild(script);
         }
@@ -6509,12 +6506,4 @@
     });
   }
 
-})();
-
-  }
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded',__ryuRun);
-  } else {
-    __ryuRun();
-  }
 })();
