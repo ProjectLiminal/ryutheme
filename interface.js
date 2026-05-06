@@ -2,12 +2,87 @@
   'use strict';
 
 
+
   const STORAGE_KEY  = 'ryuTheme';
   const TRB_STYLE_ID = 'ryu-trb-style';
   const TRB_PANEL_ID = 'ryu-trb-panel';
+  const AGAR_MODE_STYLE_ID = 'ryu-agar-mode-style';
+  const RYU_OVERLAY_SAFETY_STYLE_ID = 'ryu-overlay-safety-style';
+  var _themeRawCache = null;
+  var _themeObjCache = {};
+  var _trbDataObserver = null;
+  var _menuModeObserver = null;
+  var _menuAcctObserver = null;
+  var _menuSibObserver = null;
+  var _menuUiObserver = null;
+  var _menuSkinTimer = null;
 
   function loadTheme() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY) || '{}';
+      if (raw === _themeRawCache) return _themeObjCache;
+      _themeRawCache = raw;
+      _themeObjCache = JSON.parse(raw) || {};
+      return _themeObjCache;
+    } catch {
+      _themeRawCache = null;
+      _themeObjCache = {};
+      return _themeObjCache;
+    }
+  }
+
+  function isAgarModeActive(t) {
+    t = t || loadTheme();
+    if (t.useDefault || !t.agarModeOn) return false;
+    return !!t.agarVirusModeOn ||
+      !!t.agarMapModeOn ||
+      !!t.agarChatboxModeOn ||
+      !!t.agarLeaderboardModeOn ||
+      !!t.agarMinimapModeOn;
+  }
+
+  function applyAgarModeSettings(t) {
+    t = t || loadTheme();
+    var on = !t.useDefault && !!t.agarModeOn;
+    var changed = false;
+    function setKey(key, val) {
+      if (t[key] !== val) {
+        t[key] = val;
+        changed = true;
+      }
+    }
+    setKey('customVirus', on && !!t.agarVirusModeOn);
+    setKey('agarMapOn', on && !!t.agarMapModeOn);
+    if (t.agarDarkModeOn === undefined) {
+      var darkMirror = localStorage.getItem('ryuAgarMapDark');
+      setKey('agarDarkModeOn', darkMirror === '1' || (!!t.agarMapDark && darkMirror !== '0'));
+    }
+    if (on && t.agarChatboxModeOn) {
+      setKey('chatboxThemeOn', true);
+      setKey('chatboxStyle', 1);
+    } else if (parseInt(t.chatboxStyle || 0, 10) === 1) {
+      setKey('chatboxStyle', 0);
+    }
+    if (on && t.agarLeaderboardModeOn) {
+      setKey('lbThemeOn', true);
+      setKey('lbStyle', 1);
+    } else if (parseInt(t.lbStyle || 0, 10) === 1) {
+      setKey('lbStyle', 0);
+    }
+    if (on && t.agarMinimapModeOn) {
+      setKey('minimapThemeOn', true);
+      setKey('minimapStyle', 2);
+    } else if (parseInt(t.minimapStyle || 1, 10) === 2) {
+      setKey('minimapStyle', 1);
+    }
+    if (changed) localStorage.setItem(STORAGE_KEY, JSON.stringify(t));
+    return t;
+  }
+
+  function syncAgarModeState(t) {
+    if (!document.body) return;
+    t = applyAgarModeSettings(t || loadTheme());
+    document.body.classList.toggle('ryu-agar-mode-active', isAgarModeActive(t));
   }
 
   function isMainMenuVisible() {
@@ -19,10 +94,98 @@
     return true;
   }
 
+  function injectOverlaySafetyStyle() {
+    if (document.getElementById(RYU_OVERLAY_SAFETY_STYLE_ID)) return;
+    var s = document.createElement('style');
+    s.id = RYU_OVERLAY_SAFETY_STYLE_ID;
+    s.textContent = `
+      body:has(#ryu-shop-injected) #team-info,
+      body:has(#ryu-shop-injected) #ryu-team-panel,
+      body:has(#ryu-inv-injected) #team-info,
+      body:has(#ryu-inv-injected) #ryu-team-panel {
+        display: none !important;
+        visibility: hidden !important;
+      }
+    `;
+    (document.head || document.documentElement).appendChild(s);
+  }
+  injectOverlaySafetyStyle();
+
   function waitForTRB(cb) {
     const el = document.querySelector('.mame-top-right-bar');
     if (el) { cb(el); return; }
     setTimeout(() => waitForTRB(cb), 300);
+  }
+
+  // Agar.io mode in-game team panel style. Kept separate from the lobby team
+  // preview so it only affects the top-left team HUD during gameplay.
+  function injectAgarModeStyle() {
+    if (document.getElementById(AGAR_MODE_STYLE_ID)) return;
+    var s = document.createElement('style');
+    s.id = AGAR_MODE_STYLE_ID;
+    s.textContent = `
+      body.ryu-agar-mode-active #ryu-team-panel,
+      body.ryu-agar-mode-active #team-info {
+        background: rgba(232, 239, 242, 0.86) !important;
+        border: 1px solid rgba(82, 93, 100, 0.22) !important;
+        border-radius: 5px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.12) !important;
+        color: rgba(28, 34, 38, 0.88) !important;
+      }
+      body.ryu-agar-mode-active #ryu-team-panel .ryu-t-header {
+        background: rgba(188, 198, 204, 0.72) !important;
+        border-bottom-color: rgba(82, 93, 100, 0.18) !important;
+      }
+      body.ryu-agar-mode-active #ryu-team-panel .ryu-t-title {
+        color: rgba(36, 45, 51, 0.84) !important;
+        text-shadow: none !important;
+      }
+      body.ryu-agar-mode-active #ryu-team-panel .ryu-t-dot {
+        background: rgba(52, 60, 66, 0.78) !important;
+        box-shadow: none !important;
+      }
+      body.ryu-agar-mode-active #ryu-team-panel .ryu-t-entry {
+        border-bottom-color: rgba(82, 93, 100, 0.12) !important;
+      }
+      body.ryu-agar-mode-active #ryu-team-panel .ryu-t-name,
+      body.ryu-agar-mode-active #team-info .team-info-nick {
+        color: rgba(30, 37, 42, 0.86) !important;
+        text-shadow: none !important;
+        font-weight: 800 !important;
+      }
+      body.ryu-agar-mode-active #ryu-team-panel .ryu-t-mass,
+      body.ryu-agar-mode-active #team-info .team-info-energy {
+        color: rgba(32, 39, 44, 0.88) !important;
+        text-shadow: none !important;
+        font-weight: 800 !important;
+      }
+      body.ryu-agar-map-dark-ui.ryu-agar-mode-active #ryu-team-panel,
+      body.ryu-agar-map-dark-ui.ryu-agar-mode-active #team-info {
+        background: rgba(10, 12, 14, 0.82) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        box-shadow: 0 8px 28px rgba(0,0,0,0.28) !important;
+        color: rgba(255, 255, 255, 0.94) !important;
+      }
+      body.ryu-agar-map-dark-ui.ryu-agar-mode-active #ryu-team-panel .ryu-t-header {
+        background: rgba(255, 255, 255, 0.04) !important;
+        border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+      }
+      body.ryu-agar-map-dark-ui.ryu-agar-mode-active #ryu-team-panel .ryu-t-title,
+      body.ryu-agar-map-dark-ui.ryu-agar-mode-active #ryu-team-panel .ryu-t-name,
+      body.ryu-agar-map-dark-ui.ryu-agar-mode-active #team-info .team-info-nick,
+      body.ryu-agar-map-dark-ui.ryu-agar-mode-active #ryu-team-panel .ryu-t-mass,
+      body.ryu-agar-map-dark-ui.ryu-agar-mode-active #team-info .team-info-energy {
+        color: rgba(255, 255, 255, 0.95) !important;
+        text-shadow: none !important;
+      }
+      body.ryu-agar-map-dark-ui.ryu-agar-mode-active #ryu-team-panel .ryu-t-dot {
+        background: rgba(255, 255, 255, 0.9) !important;
+      }
+      body.ryu-agar-map-dark-ui.ryu-agar-mode-active #ryu-team-panel .ryu-t-entry {
+        border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+      }
+    `;
+    (document.head || document.documentElement).appendChild(s);
   }
 
   // Styles
@@ -40,12 +203,12 @@
     style.id = TRB_STYLE_ID;
     style.textContent = `
 
-      /* ── Hide native TRB ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Hide native TRB Ã¢â€â‚¬Ã¢â€â‚¬ */
       .mame-top-right-bar {
         display: none !important;
       }
 
-      /* ── Hide native settings window entirely — kept off-screen so elements retain layout for event firing ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Hide native settings window entirely Ã¢â‚¬â€ kept off-screen so elements retain layout for event firing Ã¢â€â‚¬Ã¢â€â‚¬ */
       .sm-partition {
         position: fixed !important;
         left: -9999px !important;
@@ -60,7 +223,7 @@
         display: none !important;
       }
 
-      /* ── Panel shell ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Panel shell Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-trb-panel {
         display: none !important;
       }
@@ -76,7 +239,7 @@
         position: absolute;
         top: 0; left: 0; right: 0;
         height: 2px;
-        background: linear-gradient(90deg, #22d3ee, rgba(232, 25, 44, 0.2));
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
         z-index: 10;
       }
 
@@ -98,7 +261,7 @@
         z-index: 1;
       }
 
-      /* ── Identity header ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Identity header Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-trb-identity {
         padding: 24px 18px 20px;
         background: linear-gradient(180deg, rgba(232, 25, 44, 0.08) 0%, transparent 100%);
@@ -158,7 +321,7 @@
         text-align: center;
       }
 
-      /* ── Stats grid ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Stats grid Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-trb-stats {
         padding: 14px 16px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.04);
@@ -189,14 +352,14 @@
         background: rgba(255, 255, 255, 0.04);
       }
       .ryu-trb-sg:hover {
-        background: rgba(232, 25, 44, 0.08);
-        border-color: rgba(232, 25, 44, 0.25);
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(255, 255, 255, 0.12);
       }
 
       .ryu-trb-sg-label {
         font-size: 8px;
         font-weight: 700;
-        color: rgba(232, 25, 44, 0.85);
+        color: rgba(255, 255, 255, 0.55);
         letter-spacing: 2px;
         text-transform: uppercase;
         margin-bottom: 4px;
@@ -219,7 +382,7 @@
         color: rgba(255, 255, 255, 0.95);
       }
 
-      /* ── Login button ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Login button Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-trb-login-btn {
         display: block;
         width: 100%;
@@ -228,15 +391,15 @@
         font-weight: 700;
         color: #fff;
         text-decoration: none;
-        background: linear-gradient(135deg, #22d3ee 0%, #0891b2 100%);
+        background: rgba(255,255,255,0.10);
         padding: 10px;
         border-radius: 7px;
         letter-spacing: 1px;
         text-transform: uppercase;
-        box-shadow: 0 3px 16px rgba(232, 25, 44, 0.4);
+        box-shadow: 0 3px 16px rgba(0,0,0,0.22);
         transition: all 0.15s;
         cursor: pointer;
-        border: 1px solid rgba(232, 25, 44, 0.5);
+        border: 1px solid rgba(255,255,255,0.14);
         font-family: 'Noto Sans', sans-serif;
         position: relative;
         overflow: hidden;
@@ -251,12 +414,12 @@
       }
       #ryu-trb-login-btn:hover::before { left: 100%; }
       #ryu-trb-login-btn:hover {
-        background: linear-gradient(135deg, #ff2438 0%, #d01525 100%);
-        box-shadow: 0 3px 24px rgba(232, 25, 44, 0.6);
+        background: rgba(255,255,255,0.16);
+        box-shadow: 0 3px 24px rgba(0,0,0,0.28);
         transform: translateY(-1px);
       }
 
-      /* ── Nav section ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Nav section Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-trb-nav {
         display: flex;
         flex-direction: column;
@@ -274,7 +437,7 @@
         position: relative;
       }
       .ryu-trb-nav-btn:last-child { border-bottom: none; }
-      .ryu-trb-nav-btn:hover { background: rgba(232, 25, 44, 0.07); }
+      .ryu-trb-nav-btn:hover { background: rgba(255, 255, 255, 0.06); }
 
       /* left sweep */
       .ryu-trb-nav-btn::before {
@@ -282,8 +445,8 @@
         position: absolute;
         left: 0; top: 0; bottom: 0;
         width: 2px;
-        background: #22d3ee;
-        box-shadow: 0 0 10px rgba(232, 25, 44, 0.7);
+        background: rgba(255,255,255,0.9);
+        box-shadow: 0 0 8px rgba(255,255,255,0.18);
         transform: scaleY(0);
         transform-origin: bottom;
         transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -312,7 +475,7 @@
         font-weight: 300;
       }
       .ryu-trb-nav-btn:hover .ryu-trb-nav-arrow {
-        color: rgba(232, 25, 44, 0.7);
+        color: rgba(255,255,255,0.55);
         transform: translateX(3px);
       }
 
@@ -321,15 +484,15 @@
         font-family: 'Noto Sans', sans-serif;
         font-size: 7px;
         font-weight: 900;
-        background: #22d3ee;
+        background: rgba(255,255,255,0.12);
         color: #fff;
         padding: 2px 6px;
         border-radius: 3px;
         letter-spacing: 1px;
-        box-shadow: 0 0 8px rgba(232, 25, 44, 0.5);
+        box-shadow: none;
       }
 
-      /* ── Resize handle ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Resize handle Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-trb-resize {
         position: absolute;
         left: 0;
@@ -371,12 +534,12 @@
     overlay.id = 'ryu-login-popup';
     overlay.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:999999;background:rgba(0,0,0,0.7);';
     var box = document.createElement('div');
-    box.style.cssText = 'position:relative;background:rgba(13,17,23,0.97);border:1px solid rgba(34,211,238,0.35);border-radius:12px;padding:32px 40px;text-align:center;min-width:280px;box-shadow:0 0 30px rgba(34,211,238,0.15);backdrop-filter:blur(4px);';
+    box.style.cssText = 'position:relative;background:rgba(13,17,23,0.97);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:32px 40px;text-align:center;min-width:280px;box-shadow:0 0 30px rgba(0,0,0,0.24);backdrop-filter:blur(4px);';
     var closeBtn = document.createElement('div');
     closeBtn.textContent = '\u2715';
-    closeBtn.style.cssText = 'position:absolute;top:10px;right:14px;cursor:pointer;color:rgba(34,211,238,0.5);font-size:16px;line-height:1;';
-    closeBtn.addEventListener('mouseover', function() { closeBtn.style.color='#22d3ee'; });
-    closeBtn.addEventListener('mouseout',  function() { closeBtn.style.color='rgba(34,211,238,0.5)'; });
+    closeBtn.style.cssText = 'position:absolute;top:10px;right:14px;cursor:pointer;color:rgba(255,255,255,0.5);font-size:16px;line-height:1;';
+    closeBtn.addEventListener('mouseover', function() { closeBtn.style.color='rgba(255,255,255,0.96)'; });
+    closeBtn.addEventListener('mouseout',  function() { closeBtn.style.color='rgba(255,255,255,0.5)'; });
     closeBtn.addEventListener('click', function() { overlay.remove(); });
     var icon = document.createElement('div');
     icon.textContent = '\uD83D\uDD12';
@@ -471,7 +634,7 @@
 
     `;
 
-    // Menu backdrop — dark rect behind the menu matching its exact bounds
+    // Menu backdrop Ã¢â‚¬â€ dark rect behind the menu matching its exact bounds
     var backdrop = document.createElement('div');
     backdrop.id = 'ryu-menu-backdrop';
     document.body.appendChild(backdrop);
@@ -506,8 +669,7 @@
     // Resize handle
     injectResizeHandle(panel);
 
-    // Live data sync
-    setInterval(function () {
+    function syncTRBData() {
       if (loadTheme().useDefault) return;
       const nTRB = document.querySelector('.mame-top-right-bar');
       if (!nTRB) return;
@@ -532,7 +694,7 @@
         const ch = un.textContent.charAt(0).toUpperCase();
         if (av.textContent !== ch) av.textContent = ch;
       }
-      // login state sync — update guest label + remove login btn when user logs in
+      // login state sync Ã¢â‚¬â€ update guest label + remove login btn when user logs in
       const loginStillPresent = !!nTRB.querySelector('#login-button');
       const guestLabel = document.getElementById('ryu-trb-guest-label');
       const loginBtnTRB = document.getElementById('ryu-trb-login-btn');
@@ -541,7 +703,12 @@
         if (guestLabel.textContent !== expected) guestLabel.textContent = expected;
       }
       if (!loginStillPresent && loginBtnTRB) loginBtnTRB.remove();
-    }, 500);
+    }
+
+    if (_trbDataObserver) _trbDataObserver.disconnect();
+    _trbDataObserver = new MutationObserver(syncTRBData);
+    _trbDataObserver.observe(nativeTRB, { childList: true, subtree: true, characterData: true });
+    syncTRBData();
   }
 
   // resize handle
@@ -556,7 +723,7 @@
       '<div id="ryu-trb-rh2" style="position:absolute;left:4px;bottom:3px;width:5px;height:1.5px;background:rgba(200,0,0,0.5);transform:rotate(45deg);border-radius:1px;transition:background 0.2s;"></div>';
     panel.appendChild(handle);
 
-    // panel is pinned right:0 top:0 — dragging left edge = resize width
+    // panel is pinned right:0 top:0 Ã¢â‚¬â€ dragging left edge = resize width
     // dragging bottom = resize height
     var PANEL_MIN_W = 200, PANEL_MAX_W = 700;
     var PANEL_MIN_H = 320, PANEL_MAX_H = 900;
@@ -619,6 +786,7 @@
 
   // strip / restore
   function stripTRB() {
+    if (_trbDataObserver) { _trbDataObserver.disconnect(); _trbDataObserver = null; }
     const panel = document.getElementById(TRB_PANEL_ID);
     const style = document.getElementById(TRB_STYLE_ID);
     if (panel) panel.remove();
@@ -654,17 +822,6 @@
   // useDefault watcher
   var _lastDefault = null;
 
-  setInterval(function () {
-    var isDefault = !!loadTheme().useDefault;
-    if (isDefault && _lastDefault !== true) {
-      stripTRB();
-    } else if (!isDefault && _lastDefault === true) {
-      injectTRB();
-      startMenuObserver();
-    }
-    _lastDefault = isDefault;
-  }, 500);
-
   // Boot
   function boot() {
     if (loadTheme().useDefault) return;
@@ -689,7 +846,7 @@
     s.id = MENU_STYLE_ID;
     s.textContent = `
 
-      /* ── Hide native main menu elements ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Hide native main menu elements Ã¢â€â‚¬Ã¢â€â‚¬ */
       .mame-bottom-left-bar,
       .main-menu-ryuten-logo,
       .discord-url,
@@ -702,12 +859,12 @@
         display: none !important;
       }
 
-      /* ── Hide native bottom-right-bar — replaced by ryu-team-box ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Hide native bottom-right-bar Ã¢â‚¬â€ replaced by ryu-team-box Ã¢â€â‚¬Ã¢â€â‚¬ */
       .mame-bottom-right-bar {
         display: none !important;
       }
 
-      /* ── Menu backdrop — covers game canvas behind the menu ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Menu backdrop Ã¢â‚¬â€ covers game canvas behind the menu Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-menu-backdrop {
         position: fixed;
         background: #0d1117;
@@ -722,7 +879,7 @@
         opacity: 1;
       }
 
-      /* ── Menu UI shell ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Menu UI shell Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-menu-ui {
         position: fixed;
         top: 50%;
@@ -736,12 +893,11 @@
         user-select: none;
         pointer-events: all;
       }
-
       #ryu-menu-ui.ryu-menu-visible {
         display: grid;
       }
 
-      /* ── Shared box ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Shared box Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-menu-box {
         background: #161b22;
         border: 1px solid rgba(255,255,255,0.05);
@@ -752,11 +908,11 @@
         content: '';
         position: absolute; top: 0; left: 0; right: 0;
         height: 1px;
-        background: linear-gradient(90deg, transparent, #22d3ee, transparent);
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
         z-index: 1;
       }
 
-      /* ── Section label ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Section label Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-menu-label {
         font-size: 9px; font-weight: 700; letter-spacing: 3px;
         color: rgba(255,255,255,0.3); text-transform: uppercase;
@@ -764,14 +920,14 @@
         font-family: 'Noto Sans', sans-serif;
       }
 
-      /* ── Col divider ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Col divider Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-menu-divider {
         height: 1px;
         background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
         margin: 0 14px;
       }
 
-      /* ── LEFT: Region buttons ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ LEFT: Region buttons Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-region-group {
         display: flex; gap: 6px;
         padding: 0 14px 12px;
@@ -788,16 +944,16 @@
         transition: all 0.15s;
       }
       .ryu-region-btn:hover {
-        border-color: rgba(34,211,238,0.4); color: #fff;
+        border-color: rgba(255,255,255,0.18); color: #fff;
       }
       .ryu-region-btn.ryu-region-active {
-        background: rgba(34,211,238,0.15);
-        border-color: #22d3ee; color: #fff;
-        box-shadow: 0 0 10px rgba(34,211,238,0.2);
-        text-shadow: 0 0 8px rgba(34,211,238,0.5);
+        background: rgba(255,255,255,0.10);
+        border-color: rgba(255,255,255,0.28); color: #fff;
+        box-shadow: 0 0 10px rgba(255,255,255,0.06);
+        text-shadow: none;
       }
 
-      /* ── LEFT: Mode list ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ LEFT: Mode list Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-mode-list { padding: 4px 0 8px; flex: 1; display: flex; flex-direction: column; }
       .ryu-mode-item {
         display: flex; align-items: center; gap: 8px;
@@ -807,15 +963,15 @@
         flex: 1;
       }
       .ryu-mode-item:hover {
-        background: rgba(34,211,238,0.05);
-        border-left-color: rgba(34,211,238,0.35);
+        background: rgba(255,255,255,0.05);
+        border-left-color: rgba(255,255,255,0.18);
       }
       .ryu-mode-item.ryu-mode-active {
-        background: rgba(34,211,238,0.09);
-        border-left-color: #22d3ee;
+        background: rgba(255,255,255,0.08);
+        border-left-color: rgba(255,255,255,0.35);
       }
       .ryu-mode-arrow {
-        font-size: 10px; color: rgba(34,211,238,0.5);
+        font-size: 10px; color: rgba(255,255,255,0.5);
         font-family: 'Noto Sans', sans-serif;
       }
       .ryu-mode-name {
@@ -827,12 +983,12 @@
       .ryu-mode-item.ryu-mode-active .ryu-mode-name { color: #fff; }
       .ryu-mode-count {
         font-size: 11px; font-weight: 700; letter-spacing: 1px;
-        color: rgba(34,211,238,0.4);
+        color: rgba(255,255,255,0.42);
         font-family: 'Noto Sans', sans-serif;
       }
-      .ryu-mode-item.ryu-mode-active .ryu-mode-count { color: #22d3ee; }
+      .ryu-mode-item.ryu-mode-active .ryu-mode-count { color: rgba(255,255,255,0.88); }
 
-      /* ── CENTER: Orb section ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ CENTER: Orb section Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-orb-section {
         padding: 18px 16px 10px;
         display: flex;
@@ -846,15 +1002,15 @@
       .ryu-orb-profile-badge {
         display: flex; align-items: center; gap: 7px;
         background: #0d1117;
-        border: 1px solid rgba(34,211,238,0.5);
-        border-left: 3px solid #22d3ee;
+        border: 1px solid rgba(255,255,255,0.14);
+        border-left: 3px solid rgba(255,255,255,0.35);
         padding: 5px 18px;
-        box-shadow: 0 0 12px rgba(34,211,238,0.2);
+        box-shadow: 0 0 12px rgba(255,255,255,0.05);
         pointer-events: none;
       }
       .ryu-orb-profile-dot {
         width: 6px; height: 6px; border-radius: 50%;
-        background: #22d3ee; box-shadow: 0 0 6px #22d3ee;
+        background: rgba(255,255,255,0.85); box-shadow: none;
         animation: ryu-orb-dot-blink 1.8s ease-in-out infinite;
         flex-shrink: 0;
       }
@@ -862,7 +1018,7 @@
       .ryu-orb-profile-text {
         font-family: 'Noto Sans', sans-serif;
         font-size: 10px; font-weight: 900; letter-spacing: 4px;
-        color: #fff; text-shadow: 0 0 8px rgba(34,211,238,0.4);
+        color: #fff; text-shadow: none;
       }
 
       /* Dual orb row */
@@ -886,20 +1042,20 @@
       .ryu-orb-slot-label {
         font-family: 'Noto Sans', sans-serif;
         font-size: 13px; font-weight: 600; letter-spacing: 2px;
-        color: rgba(34,211,238,0.75);
+        color: rgba(255,255,255,0.72);
         text-transform: uppercase;
       }
 
-      /* The orb circle — full circle, single skin */
+      /* The orb circle Ã¢â‚¬â€ full circle, single skin */
       .ryu-orb-circle {
         position: relative;
         width: 202px; height: 202px;
         border-radius: 50%;
         overflow: hidden;
         box-shadow:
-          0 0 0 3px #22d3ee,
-          0 0 20px rgba(34,211,238,0.65),
-          0 0 50px rgba(34,211,238,0.18);
+          0 0 0 2px rgba(255,255,255,0.24),
+          0 0 18px rgba(255,255,255,0.10),
+          0 0 42px rgba(255,255,255,0.05);
         flex-shrink: 0;
         background-color: #111;
         background-size: cover;
@@ -910,17 +1066,17 @@
         position: absolute; top: 50%; left: 50%;
         transform: translate(-50%,-50%);
         width: 16px; height: 16px; border-radius: 50%;
-        border: 1.5px solid rgba(34,211,238,0.7);
-        box-shadow: 0 0 10px rgba(34,211,238,0.5);
+        border: 1.5px solid rgba(255,255,255,0.30);
+        box-shadow: 0 0 8px rgba(255,255,255,0.08);
         display: flex; align-items: center; justify-content: center;
         pointer-events: none;
       }
       .ryu-orb-center::after {
         content: '';
         width: 6px; height: 6px; border-radius: 50%;
-        background: #22d3ee; box-shadow: 0 0 6px #22d3ee;
+        background: rgba(255,255,255,0.90); box-shadow: none;
       }
-      .ryu-orb-notch { position: absolute; background: #22d3ee; box-shadow: 0 0 6px #22d3ee; pointer-events: none; }
+      .ryu-orb-notch { position: absolute; background: rgba(255,255,255,0.85); box-shadow: none; pointer-events: none; }
       .ryu-orb-notch.t { top:-1px; left:50%; transform:translateX(-50%); width:3px; height:10px; }
       .ryu-orb-notch.b { bottom:-1px; left:50%; transform:translateX(-50%); width:3px; height:10px; }
       .ryu-orb-notch.l { left:-1px; top:50%; transform:translateY(-50%); width:10px; height:3px; }
@@ -929,24 +1085,24 @@
       /* Change Skins button */
       #ryu-change-skins-btn {
         height: 36px; padding: 0 32px;
-        background: rgba(34,211,238,0.1);
-        border: 1px solid rgba(34,211,238,0.4);
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.18);
         border-radius: 8px;
         cursor: pointer; outline: none;
         font-family: 'Noto Sans', sans-serif;
         font-size: 9px; font-weight: 700; letter-spacing: 3px;
-        color: rgba(34,211,238,0.8);
+        color: rgba(255,255,255,0.88);
         transition: all 0.15s;
         display: flex; align-items: center; gap: 8px;
       }
       #ryu-change-skins-btn:hover {
-        background: rgba(34,211,238,0.2);
-        border-color: #22d3ee; color: #fff;
-        box-shadow: 0 0 14px rgba(34,211,238,0.3);
-        text-shadow: 0 0 8px rgba(34,211,238,0.6);
+        background: rgba(255,255,255,0.12);
+        border-color: rgba(255,255,255,0.28); color: #fff;
+        box-shadow: 0 0 14px rgba(255,255,255,0.06);
+        text-shadow: none;
       }
 
-      /* ── CENTER: Input fields ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ CENTER: Input fields Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-inputs-section {
         padding: 12px 14px 14px;
         display: flex; flex-direction: column; gap: 8px;
@@ -969,23 +1125,23 @@
         box-sizing: border-box;
       }
       .ryu-field:focus {
-        border-color: rgba(34,211,238,0.5);
-        box-shadow: 0 0 8px rgba(34,211,238,0.1);
+        border-color: rgba(255,255,255,0.18);
+        box-shadow: 0 0 8px rgba(255,255,255,0.04);
       }
       .ryu-field::placeholder { color: rgba(255,255,255,0.18); }
 
-      /* ── CENTER: Play row ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ CENTER: Play row Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-play-row { display: flex; gap: 8px; }
       .ryu-play-btn {
         flex: 1; height: 42px;
-        background: #22d3ee;
+        background: rgba(255,255,255,0.85);
         border: none;
         border-radius: 8px;
         color: #0d1117;
         font-family: 'Noto Sans', sans-serif; font-size: 11px; font-weight: 800;
         letter-spacing: 2px; cursor: pointer; outline: none;
         display: flex; align-items: center; justify-content: center; gap: 8px;
-        box-shadow: 0 4px 20px rgba(34,211,238,0.3);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.22);
         transition: all 0.15s; position: relative; overflow: hidden;
       }
       .ryu-play-btn::before {
@@ -996,7 +1152,7 @@
       }
       .ryu-play-btn:hover::before { left: 100%; }
       .ryu-play-btn:hover {
-        box-shadow: 0 4px 28px rgba(34,211,238,0.6);
+        box-shadow: 0 4px 28px rgba(0,0,0,0.28);
         transform: translateY(-1px);
       }
       .ryu-spec-btn {
@@ -1010,17 +1166,17 @@
         font-family: 'Noto Sans', sans-serif; font-weight: 700; letter-spacing: 1px;
       }
       .ryu-spec-btn:hover {
-        border-color: rgba(34,211,238,0.4); color: #fff;
+        border-color: rgba(255,255,255,0.18); color: #fff;
       }
 
-      /* ── CENTER: Settings button ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ CENTER: Settings button Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-settings-row { display: flex; }
       #ryu-open-settings-btn {
         flex: 1; height: 42px;
         background: transparent;
-        border: 1px solid rgba(34,211,238,0.2);
+        border: 1px solid rgba(255,255,255,0.10);
         border-radius: 8px;
-        color: rgba(34,211,238,0.6);
+        color: rgba(255,255,255,0.6);
         font-family: 'Noto Sans', sans-serif; font-size: 11px; font-weight: 700;
         letter-spacing: 2px; cursor: pointer; outline: none;
         display: flex; align-items: center; justify-content: flex-start;
@@ -1028,19 +1184,19 @@
         transition: all 0.15s;
       }
       #ryu-open-settings-btn:hover {
-        background: rgba(34,211,238,0.07);
-        border-color: rgba(34,211,238,0.5);
-        color: #22d3ee;
+        background: rgba(255,255,255,0.06);
+        border-color: rgba(255,255,255,0.18);
+        color: rgba(255,255,255,0.92);
       }
 
-      /* ── RIGHT: Account panel — Command HQ ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ RIGHT: Account panel Ã¢â‚¬â€ Command HQ Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-menu-right-account {
         display: flex; flex-direction: column; flex: 1;
       }
       .ryu-acct-hero {
         margin: 0 14px;
-        background: linear-gradient(135deg, rgba(34,211,238,0.06) 0%, transparent 100%);
-        border: 1px solid rgba(34,211,238,0.15);
+        background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, transparent 100%);
+        border: 1px solid rgba(255,255,255,0.10);
         border-bottom: none;
         overflow: hidden;
         display: flex; align-items: center; gap: 16px;
@@ -1050,18 +1206,57 @@
         content: ''; position: absolute; inset: 0;
         background: repeating-linear-gradient(
           0deg, transparent, transparent 3px,
-          rgba(34,211,238,0.018) 3px, rgba(34,211,238,0.018) 4px
+          rgba(255,255,255,0.014) 3px, rgba(255,255,255,0.014) 4px
         );
         pointer-events: none;
       }
       .ryu-acct-avatar {
         width: 80px; height: 80px; border-radius: 50%;
-        background: rgba(34,211,238,0.12);
-        border: 2px solid rgba(34,211,238,0.6);
-        box-shadow: 0 0 20px rgba(34,211,238,0.25);
+        background: rgba(255,255,255,0.10);
+        border: 2px solid rgba(255,255,255,0.18);
+        box-shadow: 0 0 20px rgba(255,255,255,0.05);
         display: flex; align-items: center; justify-content: center;
         font-family: 'Noto Sans', sans-serif; font-size: 32px; font-weight: 900;
         color: #ffffff; flex-shrink: 0; position: relative; z-index: 1;
+        overflow: hidden;
+      }
+      .ryu-acct-avatar img {
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+        z-index: 1;
+      }
+      .ryu-acct-avatar-fallback {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+      }
+      .ryu-acct-avatar-upload {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        text-align: center;
+        padding: 12px;
+        background: rgba(8,12,18,0.72);
+        color: rgba(255,255,255,0.94);
+        font-family: 'Noto Sans', sans-serif;
+        font-size: 10px; font-weight: 800; letter-spacing: 1.4px;
+        line-height: 1.15;
+        text-transform: uppercase;
+        opacity: 0;
+        transition: opacity 0.16s ease;
+        cursor: pointer;
+        z-index: 3;
+      }
+      .ryu-acct-avatar:hover .ryu-acct-avatar-upload {
+        opacity: 1;
       }
       .ryu-acct-id {
         flex: 1; min-width: 0; position: relative; z-index: 1;
@@ -1073,7 +1268,7 @@
       }
       .ryu-acct-tag {
         font-size: 9px; font-weight: 600;
-        color: rgba(34,211,238,0.8); letter-spacing: 3px; text-transform: uppercase;
+        color: rgba(255,255,255,0.72); letter-spacing: 3px; text-transform: uppercase;
       }
       .ryu-acct-stats {
         display: grid; grid-template-columns: 1fr 1fr;
@@ -1089,7 +1284,7 @@
       .ryu-acct-stat-label {
         font-family: 'Noto Sans', sans-serif;
         font-size: 8px; font-weight: 700; letter-spacing: 2px;
-        color: rgba(34,211,238,0.75); text-transform: uppercase;
+        color: rgba(255,255,255,0.60); text-transform: uppercase;
       }
       .ryu-acct-stat-val {
         font-family: 'Noto Sans', sans-serif;
@@ -1108,20 +1303,20 @@
         text-transform: uppercase; text-decoration: none; transition: all 0.15s;
       }
       .ryu-acct-btn.primary {
-        background: #22d3ee; color: #0d1117;
-        box-shadow: 0 2px 14px rgba(34,211,238,0.3);
+        background: rgba(255,255,255,0.85); color: #0d1117;
+        box-shadow: 0 2px 14px rgba(0,0,0,0.22);
       }
-      .ryu-acct-btn.primary:hover { filter: brightness(1.08); box-shadow: 0 2px 22px rgba(34,211,238,0.45); transform: translateY(-1px); }
+      .ryu-acct-btn.primary:hover { filter: brightness(1.08); box-shadow: 0 2px 22px rgba(0,0,0,0.28); transform: translateY(-1px); }
       .ryu-acct-btn.secondary {
         background: rgba(255,255,255,0.03);
         border: 1px solid rgba(255,255,255,0.08); color: rgba(255,255,255,0.45);
       }
       .ryu-acct-btn.secondary:hover {
-        background: rgba(34,211,238,0.07); border-color: rgba(34,211,238,0.35); color: rgba(255,255,255,0.9);
+        background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.18); color: rgba(255,255,255,0.9);
       }
 
-      /* ── TEAM BOX — below the main menu panel ── */
-      /* ── TEAM BOX — Design 3: Operator Roster ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ TEAM BOX Ã¢â‚¬â€ below the main menu panel Ã¢â€â‚¬Ã¢â€â‚¬ */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ TEAM BOX Ã¢â‚¬â€ Design 3: Operator Roster Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-team-box {
         position: fixed;
         left: 50%;
@@ -1133,7 +1328,7 @@
         display: none;
         background: #0d1117;
         border: 1px solid rgba(255,255,255,0.05);
-        border-top: 1px solid rgba(34,211,238,0.35);
+        border-top: 1px solid rgba(255,255,255,0.12);
         box-shadow: 0 0 30px rgba(0,0,0,0.6);
         font-family: 'Noto Sans', sans-serif;
         user-select: none;
@@ -1152,7 +1347,7 @@
       #ryu-team-box-label {
         font-family: 'Noto Sans', sans-serif;
         font-size: 13px; font-weight: 700; letter-spacing: 3px;
-        color: rgba(34,211,238,0.75);
+        color: rgba(255,255,255,0.72);
         padding: 0 22px;
         border-right: 1px solid rgba(255,255,255,0.06);
         height: 100%; display: flex; align-items: center;
@@ -1179,15 +1374,15 @@
         transition: background 0.2s;
       }
       .ryu-team-card.filled::before {
-        background: #22d3ee;
-        box-shadow: 0 0 8px rgba(34,211,238,0.6);
+        background: rgba(255,255,255,0.85);
+        box-shadow: none;
       }
       /* Split orb container */
       .ryu-team-card-skin {
         width: 50px; height: 50px;
         border-radius: 50%; flex-shrink: 0;
-        border: 2px solid rgba(34,211,238,0.4);
-        box-shadow: 0 0 12px rgba(34,211,238,0.18);
+        border: 2px solid rgba(255,255,255,0.18);
+        box-shadow: 0 0 12px rgba(255,255,255,0.05);
         position: relative; overflow: hidden;
         background: #1c2128;
         cursor: pointer;
@@ -1196,13 +1391,13 @@
         border: 1.5px dashed rgba(255,255,255,0.1);
         box-shadow: none; background: transparent; cursor: default;
       }
-      /* Left half — skin 1 */
+      /* Left half Ã¢â‚¬â€ skin 1 */
       .ryu-team-orb-left {
         position: absolute; left: 0; top: 0; width: 50%; height: 100%;
         background-size: 200% 100%; background-position: left center;
         background-repeat: no-repeat; background-color: #111;
       }
-      /* Right half — skin 2 */
+      /* Right half Ã¢â‚¬â€ skin 2 */
       .ryu-team-orb-right {
         position: absolute; right: 0; top: 0; width: 50%; height: 100%;
         background-size: 200% 100%; background-position: right center;
@@ -1211,7 +1406,7 @@
       /* Split line */
       .ryu-team-orb-split {
         position: absolute; left: 50%; top: 5%; height: 90%; width: 1px;
-        background: linear-gradient(180deg, transparent, rgba(34,211,238,0.5) 20%, rgba(34,211,238,0.5) 80%, transparent);
+        background: linear-gradient(180deg, transparent, rgba(255,255,255,0.28) 20%, rgba(255,255,255,0.28) 80%, transparent);
         transform: translateX(-50%);
         pointer-events: none;
       }
@@ -1230,8 +1425,8 @@
       .ryu-team-copy-arrow {
         position: absolute; left: 50%; top: 50%;
         transform: translate(-50%, -50%) scale(0);
-        font-size: 22px; color: #22d3ee;
-        text-shadow: 0 0 12px rgba(34,211,238,1), 0 0 4px #fff;
+        font-size: 22px; color: rgba(255,255,255,0.92);
+        text-shadow: none;
         font-weight: 900;
         pointer-events: none;
         transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1), opacity 0.35s ease;
@@ -1247,13 +1442,13 @@
         left: 50%; bottom: 60px;
         transform: translateX(-50%) translateY(14px);
         background: #0d1117;
-        border: 1px solid rgba(34,211,238,0.5);
-        border-left: 4px solid #22d3ee;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-left: 4px solid rgba(255,255,255,0.35);
         padding: 11px 24px;
         font-family: 'Noto Sans', sans-serif;
         font-size: 10px; font-weight: 700; letter-spacing: 3px;
         color: #fff;
-        box-shadow: 0 0 20px rgba(34,211,238,0.25), 0 8px 32px rgba(0,0,0,0.8);
+        box-shadow: 0 0 20px rgba(0,0,0,0.24), 0 8px 32px rgba(0,0,0,0.8);
         opacity: 0; pointer-events: none; z-index: 99999;
         white-space: nowrap; display: flex; align-items: center; gap: 10px;
         transition: opacity 200ms ease, transform 200ms ease;
@@ -1263,13 +1458,119 @@
       }
       .ryu-team-copy-toast-dot {
         width: 8px; height: 8px; border-radius: 50%;
-        background: #22d3ee; box-shadow: 0 0 8px #22d3ee; flex-shrink: 0;
+        background: rgba(255,255,255,0.85); box-shadow: none; flex-shrink: 0;
+      }
+      .ryu-team-overflow-popup {
+        position: fixed;
+        z-index: 99998;
+        min-width: 280px;
+        max-width: 360px;
+        background: rgba(13,17,23,0.98);
+        border: 1px solid rgba(255,255,255,0.16);
+        box-shadow: 0 18px 44px rgba(0,0,0,0.5);
+        padding: 10px;
+        opacity: 0;
+        transform: translateY(8px);
+        pointer-events: none;
+        transition: opacity 0.16s ease, transform 0.16s ease;
+      }
+      .ryu-team-overflow-popup.show {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+      }
+      .ryu-team-overflow-title {
+        font-family: 'Noto Sans', sans-serif;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 2px;
+        color: rgba(255,255,255,0.7);
+        padding: 2px 2px 8px;
+        text-transform: uppercase;
+      }
+      .ryu-team-overflow-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .ryu-team-overflow-entry {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        padding: 8px 9px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.08);
+      }
+      .ryu-team-overflow-mini {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        overflow: hidden;
+        flex-shrink: 0;
+        position: relative;
+        background: #1c2128;
+        border: 1px solid rgba(255,255,255,0.16);
+      }
+      .ryu-team-overflow-mini-half {
+        position: absolute;
+        top: 0;
+        width: 50%;
+        height: 100%;
+        background-color: #111;
+        background-repeat: no-repeat;
+        background-size: 200% 100%;
+      }
+      .ryu-team-overflow-mini-half.left {
+        left: 0;
+        background-position: left center;
+      }
+      .ryu-team-overflow-mini-half.right {
+        right: 0;
+        background-position: right center;
+      }
+      .ryu-team-overflow-mini-line {
+        position: absolute;
+        left: 50%;
+        top: 10%;
+        width: 1px;
+        height: 80%;
+        transform: translateX(-50%);
+        background: rgba(255,255,255,0.22);
+      }
+      .ryu-team-overflow-name {
+        flex: 1;
+        min-width: 0;
+        font-family: 'Noto Sans', sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        color: rgba(255,255,255,0.92);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .ryu-team-overflow-copy {
+        flex-shrink: 0;
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.16);
+        color: rgba(255,255,255,0.9);
+        font-family: 'Noto Sans', sans-serif;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 1px;
+        padding: 6px 10px;
+        cursor: pointer;
+        text-transform: uppercase;
+      }
+      .ryu-team-overflow-copy:hover {
+        background: rgba(255,255,255,0.15);
+        border-color: rgba(255,255,255,0.3);
       }
       .ryu-team-card-info { min-width: 0; flex: 1; }
       .ryu-team-card-slot {
         font-family: 'Noto Sans', sans-serif;
         font-size: 10px; font-weight: 700; letter-spacing: 2px;
-        color: rgba(34,211,238,0.6); margin-bottom: 5px;
+        color: rgba(255,255,255,0.60); margin-bottom: 5px;
         text-transform: uppercase;
       }
       .ryu-team-card.empty .ryu-team-card-slot { color: rgba(255,255,255,0.18); }
@@ -1284,7 +1585,7 @@
         color: rgba(255,255,255,0.18); font-style: normal;
       }
 
-      /* ── RIGHT: Build info ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ RIGHT: Build info Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-build-info {
         margin-top: auto; padding: 10px 14px;
         font-size: 9px; letter-spacing: 2px;
@@ -1332,6 +1633,7 @@
     var loginHref   = loginEl    ? loginEl.getAttribute('href')  : 'https://account.ryuten.io';
     var isGuest     = !!loginEl;
     var avatarChar  = username.charAt(0).toUpperCase();
+    var acctAvatar  = loadTheme().accountAvatar || '';
 
     // mode list from native
     var modeItems = document.querySelectorAll('.mame-ssb-ms-item');
@@ -1386,7 +1688,7 @@
 
 
 
-        // Dual orb display — two separate full orbs, one per skin slot
+        // Dual orb display Ã¢â‚¬â€ two separate full orbs, one per skin slot
         '<div class="ryu-orb-section" id="ryu-orb-section-placeholder">',
           '<div class="ryu-orb-profile-badge">',
             '<div class="ryu-orb-profile-dot"></div>',
@@ -1430,12 +1732,17 @@
 
       '</div>',
 
-      // RIGHT column — Command HQ account panel
+      // RIGHT column Ã¢â‚¬â€ Command HQ account panel
       '<div class="ryu-menu-box" id="ryu-menu-right" style="display:flex;flex-direction:column;">',
         '<div class="ryu-menu-label">Account</div>',
         '<div id="ryu-menu-right-account">',
           '<div class="ryu-acct-hero">',
-            '<div class="ryu-acct-avatar" id="ryu-menu-acct-avatar">' + avatarChar + '</div>',
+            '<div class="ryu-acct-avatar" id="ryu-menu-acct-avatar">' +
+              '<img id="ryu-menu-acct-avatar-img" src="' + (acctAvatar || '') + '" alt="Avatar" style="' + (acctAvatar ? '' : 'display:none;') + '">' +
+              '<div class="ryu-acct-avatar-fallback" id="ryu-menu-acct-avatar-fallback"' + (acctAvatar ? ' style="display:none;"' : '') + '>' + avatarChar + '</div>' +
+              '<div class="ryu-acct-avatar-upload" id="ryu-menu-acct-avatar-upload">Upload Avatar</div>' +
+              '<input type="file" id="ryu-menu-acct-avatar-file" accept="image/png,image/webp,image/gif,image/jpeg" style="display:none">' +
+            '</div>',
             '<div class="ryu-acct-id">',
               '<div class="ryu-acct-name" id="ryu-menu-acct-name">' + username + '</div>',
               '<div class="ryu-acct-tag">' + (isGuest ? 'Guest Account' : 'Player') + '</div>',
@@ -1473,6 +1780,7 @@
     ].join('');
 
     document.body.appendChild(panel);
+    if (globalThis.__ryuPositionTeamBox) globalThis.__ryuPositionTeamBox();
 
     // load skin images from game state
     function loadSkinImages() {
@@ -1506,8 +1814,9 @@
     loadSkinImages();
     setTimeout(loadSkinImages, 1000);
 
-    // watch for skin changes
-    setInterval(function() {
+    // watch for skin changes without a hot 150ms loop
+    if (_menuSkinTimer) clearInterval(_menuSkinTimer);
+    _menuSkinTimer = setInterval(function() {
       try {
         var ue = window.__Ue;
         if (!ue || !ue._3901) return;
@@ -1517,7 +1826,7 @@
           loadSkinImages();
         }
       } catch(e) {}
-    }, 150);
+    }, 1000);
 
     // change skins button
     var changeSkinsBtnEl = document.getElementById('ryu-change-skins-btn');
@@ -1582,7 +1891,7 @@
 
     // Dispatch the full event sequence the game needs to commit a value
     // Simulate a full native type-and-commit cycle on a hidden input:
-    // focus → set value → input → change → blur
+    // focus Ã¢â€ â€™ set value Ã¢â€ â€™ input Ã¢â€ â€™ change Ã¢â€ â€™ blur
     // This is what the game listens for to commit the value to server state.
     function commitNativeInput(nativeEl, val) {
       nativeEl.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
@@ -1641,8 +1950,7 @@
       });
     }
 
-    // sync mode player counts
-    setInterval(function () {
+    function syncMenuModeCounts() {
       var modeEls = document.querySelectorAll('.mame-ssb-ms-item');
       var sibInfo = document.getElementById('mame-sib-players-info');
       var sibText = sibInfo ? sibInfo.textContent.trim() : '';
@@ -1662,10 +1970,26 @@
           : 'Players: ' + parseInt(countEl.textContent.trim(), 10);
         if (el.textContent !== newText) el.textContent = newText;
       });
-    }, 500);
+    }
 
-    // sync right column account data
-    setInterval(function () {
+    function renderMenuAccountAvatar(nameText) {
+      var avImg = document.getElementById('ryu-menu-acct-avatar-img');
+      var fallback = document.getElementById('ryu-menu-acct-avatar-fallback');
+      if (!avImg || !fallback) return;
+      var stored = loadTheme().accountAvatar || '';
+      if (stored) {
+        avImg.src = stored;
+        avImg.style.display = 'block';
+        fallback.style.display = 'none';
+      } else {
+        avImg.removeAttribute('src');
+        avImg.style.display = 'none';
+        fallback.textContent = (nameText || 'G').charAt(0).toUpperCase();
+        fallback.style.display = 'flex';
+      }
+    }
+
+    function syncMenuAcctData() {
       var nTRB = document.querySelector('.mame-top-right-bar');
       if (!nTRB) return;
       function syncMenuAcct(sel, id) {
@@ -1679,13 +2003,9 @@
       syncMenuAcct('#mame-trb-user-data-rc',       'ryu-menu-acct-rc');
       syncMenuAcct('#mame-trb-user-data-rp',       'ryu-menu-acct-rp');
       syncMenuAcct('#mame-trb-user-data-rank',     'ryu-menu-acct-rank');
-      var av = document.getElementById('ryu-menu-acct-avatar');
       var nm = document.getElementById('ryu-menu-acct-name');
-      if (av && nm) {
-        var ch = nm.textContent.charAt(0).toUpperCase();
-        if (av.textContent !== ch) av.textContent = ch;
-      }
-      // login state sync — update tag + remove login btn when user logs in mid-session
+      if (nm) renderMenuAccountAvatar(nm.textContent);
+      // login state sync Ã¢â‚¬â€ update tag + remove login btn when user logs in mid-session
       var loginStillPresent = !!nTRB.querySelector('#login-button');
       var tagEl  = document.querySelector('#ryu-menu-right .ryu-acct-tag');
       var loginBtnEl = document.getElementById('ryu-menu-acct-login');
@@ -1694,9 +2014,76 @@
         if (tagEl.textContent !== expectedTag) tagEl.textContent = expectedTag;
       }
       if (!loginStillPresent && loginBtnEl) loginBtnEl.remove();
-    }, 500);
+    }
 
-    // presence list renderer — called by relay hooks
+    if (_menuModeObserver) _menuModeObserver.disconnect();
+    _menuModeObserver = new MutationObserver(syncMenuModeCounts);
+    var modeList = document.querySelector('.mame-ssb-ms-list') || document.getElementById('mame-ssb-mode-select') || document.body;
+    _menuModeObserver.observe(modeList, { childList: true, subtree: true, characterData: true });
+    if (_menuSibObserver) _menuSibObserver.disconnect();
+    var sibInfoLive = document.getElementById('mame-sib-players-info');
+    if (sibInfoLive) {
+      _menuSibObserver = new MutationObserver(syncMenuModeCounts);
+      _menuSibObserver.observe(sibInfoLive, { childList: true, subtree: true, characterData: true });
+    } else {
+      _menuSibObserver = null;
+    }
+    if (_menuAcctObserver) _menuAcctObserver.disconnect();
+    var acctTRB = document.querySelector('.mame-top-right-bar');
+    if (acctTRB) {
+      _menuAcctObserver = new MutationObserver(syncMenuAcctData);
+      _menuAcctObserver.observe(acctTRB, { childList: true, subtree: true, characterData: true });
+    } else {
+      _menuAcctObserver = null;
+    }
+    syncMenuModeCounts();
+    syncMenuAcctData();
+
+    (function wireMenuAvatarUpload() {
+      var av = document.getElementById('ryu-menu-acct-avatar');
+      var upload = document.getElementById('ryu-menu-acct-avatar-upload');
+      var fileIn = document.getElementById('ryu-menu-acct-avatar-file');
+      var nameEl = document.getElementById('ryu-menu-acct-name');
+      if (!av || !upload || !fileIn) return;
+      upload.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        fileIn.click();
+      });
+      fileIn.addEventListener('change', function() {
+        var file = fileIn.files && fileIn.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+          var img = new Image();
+          img.onload = function() {
+            var size = 160;
+            var canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            var ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, size, size);
+            var scale = Math.min(size / img.width, size / img.height);
+            var drawW = Math.max(1, Math.round(img.width * scale));
+            var drawH = Math.max(1, Math.round(img.height * scale));
+            var dx = Math.round((size - drawW) / 2);
+            var dy = Math.round((size - drawH) / 2);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, dx, dy, drawW, drawH);
+            var nextTheme = loadTheme();
+            nextTheme.accountAvatar = canvas.toDataURL('image/png');
+            localStorage.setItem('ryuTheme', JSON.stringify(nextTheme));
+            renderMenuAccountAvatar(nameEl ? nameEl.textContent : 'G');
+          };
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+        fileIn.value = '';
+      });
+    })();
+
+    // presence list renderer Ã¢â‚¬â€ called by relay hooks
     // right column account buttons
     function wireAcctBtn(ourId, nativeId) {
       var ob = document.getElementById(ourId);
@@ -1792,6 +2179,7 @@
           if (bd) bd.classList.remove('ryu-menu-visible');
         } else if (!loadTheme().useDefault) {
           panel.classList.add('ryu-menu-visible');
+          if (globalThis.__ryuPositionTeamBox) globalThis.__ryuPositionTeamBox();
           // Position + show backdrop to cover game canvas behind menu
           requestAnimationFrame(function() {
             requestAnimationFrame(function() {
@@ -1831,17 +2219,30 @@
         }
 
       }
-      new MutationObserver(syncMenuUI).observe(mm, { attributes: true, attributeFilter: ['style'] });
+      if (_menuUiObserver) _menuUiObserver.disconnect();
+      _menuUiObserver = new MutationObserver(syncMenuUI);
+      _menuUiObserver.observe(mm, { attributes: true, attributeFilter: ['style'] });
       syncMenuUI();
     }
 
   }
 
   function stripMenuUI() {
+    if (_menuModeObserver) { _menuModeObserver.disconnect(); _menuModeObserver = null; }
+    if (_menuAcctObserver) { _menuAcctObserver.disconnect(); _menuAcctObserver = null; }
+    if (_menuSibObserver) { _menuSibObserver.disconnect(); _menuSibObserver = null; }
+    if (_menuUiObserver) { _menuUiObserver.disconnect(); _menuUiObserver = null; }
+    if (_menuSkinTimer) { clearInterval(_menuSkinTimer); _menuSkinTimer = null; }
     var panel = document.getElementById(MENU_UI_ID);
     var style = document.getElementById(MENU_STYLE_ID);
     var tb    = document.getElementById('ryu-team-box');
     var bd    = document.getElementById('ryu-menu-backdrop');
+    if (tb && tb._ryuTeamSourceObserver) tb._ryuTeamSourceObserver.disconnect();
+    if (tb && tb._ryuTeamVisibilityObserver) tb._ryuTeamVisibilityObserver.disconnect();
+    if (tb && tb._ryuTeamResizeHandler) window.removeEventListener('resize', tb._ryuTeamResizeHandler);
+    if (tb && globalThis.__ryuPositionTeamBox === tb._ryuTeamResizeHandler) delete globalThis.__ryuPositionTeamBox;
+    var overflowPopup = document.querySelector('.ryu-team-overflow-popup');
+    if (overflowPopup) overflowPopup.remove();
     if (panel) panel.remove();
     if (style) style.remove();
     if (tb)    tb.remove();
@@ -1871,16 +2272,6 @@
   // useDefault watcher
   var _menuUILastDefault = null;
 
-  setInterval(function () {
-    var isDefault = !!loadTheme().useDefault;
-    if (isDefault && _menuUILastDefault !== true) {
-      stripMenuUI();
-    } else if (!isDefault && _menuUILastDefault === true) {
-      initMenuUI();
-    }
-    _menuUILastDefault = isDefault;
-  }, 500);
-
   // boot menu UI
   function tryInitMenuUI() {
     if (loadTheme().useDefault) return;
@@ -1893,6 +2284,28 @@
   setTimeout(tryInitMenuUI, 800);
 
   // pre-inject overlay styles at boot
+  injectAgarModeStyle();
+  syncAgarModeState();
+  setInterval(function () {
+    var t = loadTheme();
+    var isDefault = !!t.useDefault;
+    if (isDefault && _lastDefault !== true) {
+      stripTRB();
+    } else if (!isDefault && _lastDefault === true) {
+      injectTRB();
+      startMenuObserver();
+    }
+    _lastDefault = isDefault;
+
+    if (isDefault && _menuUILastDefault !== true) {
+      stripMenuUI();
+    } else if (!isDefault && _menuUILastDefault === true) {
+      initMenuUI();
+    }
+    _menuUILastDefault = isDefault;
+
+    syncAgarModeState(t);
+  }, 500);
   injectCSMStyle();
   injectShopStyle();
   injectInventoryStyle();
@@ -1922,31 +2335,199 @@
 
     document.body.appendChild(tb);
 
-    // Refresh player cards from native DOM
+    var _teamBoxSig = '';
+    var _teamRefreshFrame = null;
+    var _teamOverflowPopup = null;
+    var _teamOverflowHideTimer = null;
+
+    function positionTeamBox() {
+      var mu = document.getElementById('ryu-menu-ui');
+      if (!mu || !mu.classList.contains('ryu-menu-visible')) return;
+      var r = mu.getBoundingClientRect();
+      if (!r.height) return;
+      var boxH = tb.offsetHeight || 96;
+      tb.style.top = Math.min(r.bottom + 6, window.innerHeight - boxH - 4) + 'px';
+    }
+    globalThis.__ryuPositionTeamBox = positionTeamBox;
+
+    function scheduleTeamRefresh() {
+      if (_teamRefreshFrame) return;
+      _teamRefreshFrame = requestAnimationFrame(function () {
+        _teamRefreshFrame = null;
+        refreshTeamBox();
+      });
+    }
+
+    function getLiveTeamClients() {
+      try {
+        var ne = globalThis.__ne;
+        var localClient = globalThis.__Be && globalThis.__Be._1059;
+        if (!ne || !ne._8202 || typeof ne._8202.values !== 'function') return [];
+        var seen = new Set();
+        var clients = [];
+        for (const teammate of ne._8202.values()) {
+          var client = teammate && teammate._2182 && teammate._2182._1059;
+          if (!client || seen.has(client)) continue;
+          seen.add(client);
+          clients.push(client);
+        }
+        return clients.map(function(client) {
+          var players = client && client._4221 ? Array.from(client._4221.values()) : [];
+          var skin1 = players[0] && players[0]._3661 ? players[0]._3661 : '';
+          var skin2 = players[1] && players[1]._3661 ? players[1]._3661 : '';
+          return {
+            client: client,
+            name: client === localClient ? 'YOU' : (client._6988 || ''),
+            skin1: skin1,
+            skin2: skin2 || skin1
+          };
+        });
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function addSkinsToCopied(urls) {
+      var added = false;
+      urls.forEach(function(url) {
+        if (url && _csmCopied.indexOf(url) === -1) {
+          _csmCopied.push(url);
+          added = true;
+        }
+      });
+      if (added) saveCopied();
+      showTeamCopyToast();
+    }
+
+    function ensureTeamOverflowPopup() {
+      if (_teamOverflowPopup && _teamOverflowPopup.parentNode) return _teamOverflowPopup;
+      _teamOverflowPopup = document.createElement('div');
+      _teamOverflowPopup.className = 'ryu-team-overflow-popup';
+      _teamOverflowPopup.addEventListener('mouseenter', function() {
+        if (_teamOverflowHideTimer) clearTimeout(_teamOverflowHideTimer);
+      });
+      _teamOverflowPopup.addEventListener('mouseleave', function() {
+        scheduleHideTeamOverflowPopup();
+      });
+      document.body.appendChild(_teamOverflowPopup);
+      return _teamOverflowPopup;
+    }
+
+    function scheduleHideTeamOverflowPopup() {
+      if (_teamOverflowHideTimer) clearTimeout(_teamOverflowHideTimer);
+      _teamOverflowHideTimer = setTimeout(function() {
+        if (_teamOverflowPopup) _teamOverflowPopup.classList.remove('show');
+      }, 120);
+    }
+
+    function hideTeamOverflowPopup(immediate) {
+      if (_teamOverflowHideTimer) {
+        clearTimeout(_teamOverflowHideTimer);
+        _teamOverflowHideTimer = null;
+      }
+      if (!_teamOverflowPopup) return;
+      if (immediate) _teamOverflowPopup.classList.remove('show');
+      else scheduleHideTeamOverflowPopup();
+    }
+
+    function showTeamOverflowPopup(anchor, members) {
+      if (!anchor || !members || !members.length) return;
+      if (_teamOverflowHideTimer) {
+        clearTimeout(_teamOverflowHideTimer);
+        _teamOverflowHideTimer = null;
+      }
+      var popup = ensureTeamOverflowPopup();
+      popup.innerHTML = '';
+
+      var title = document.createElement('div');
+      title.className = 'ryu-team-overflow-title';
+      title.textContent = 'Hidden Team Players';
+      popup.appendChild(title);
+
+      var list = document.createElement('div');
+      list.className = 'ryu-team-overflow-list';
+      members.forEach(function(member) {
+        var entry = document.createElement('div');
+        entry.className = 'ryu-team-overflow-entry';
+
+        var mini = document.createElement('div');
+        mini.className = 'ryu-team-overflow-mini';
+        var left = document.createElement('div');
+        left.className = 'ryu-team-overflow-mini-half left';
+        if (member.skin1) left.style.backgroundImage = 'url(' + member.skin1 + ')';
+        var right = document.createElement('div');
+        right.className = 'ryu-team-overflow-mini-half right';
+        if (member.skin2) right.style.backgroundImage = 'url(' + member.skin2 + ')';
+        var line = document.createElement('div');
+        line.className = 'ryu-team-overflow-mini-line';
+        mini.appendChild(left);
+        mini.appendChild(right);
+        mini.appendChild(line);
+
+        var name = document.createElement('div');
+        name.className = 'ryu-team-overflow-name';
+        name.textContent = member.name || 'Unnamed';
+
+        var copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'ryu-team-overflow-copy';
+        copyBtn.textContent = 'Copy Skins';
+        copyBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          addSkinsToCopied([member.skin1, member.skin2]);
+          copyBtn.textContent = 'Copied';
+          setTimeout(function() { copyBtn.textContent = 'Copy Skins'; }, 900);
+        });
+
+        entry.appendChild(mini);
+        entry.appendChild(name);
+        entry.appendChild(copyBtn);
+        list.appendChild(entry);
+      });
+      popup.appendChild(list);
+      popup.classList.add('show');
+      popup.style.left = '0px';
+      popup.style.top = '0px';
+      var ar = anchor.getBoundingClientRect();
+      var pr = popup.getBoundingClientRect();
+      popup.style.left = Math.max(8, Math.min(window.innerWidth - pr.width - 8, ar.left + ar.width / 2 - pr.width / 2)) + 'px';
+      popup.style.top = Math.max(8, ar.top - pr.height - 10) + 'px';
+    }
+
+    // Refresh player cards from live team state so the overflow slot stays in sync.
     function refreshTeamBox() {
-      var nativePlayers = document.querySelectorAll('.mame-brb-team-player');
+      var liveTeamClients = getLiveTeamClients();
+      var hiddenTeamClients = liveTeamClients.length > 5 ? liveTeamClients.slice(4) : [];
+      if (!hiddenTeamClients.length) hideTeamOverflowPopup(true);
+
+      var slotModels = ['', '', '', '', ''];
+      var visibleCount = Math.min(5, liveTeamClients.length);
+      for (var vi = 0; vi < visibleCount; vi++) {
+        slotModels[4 - vi] = liveTeamClients[vi];
+      }
+      if (liveTeamClients.length > 5) {
+        slotModels[0] = { overflow: true, count: liveTeamClients.length - 4 };
+      }
+
+      var nextSig = slotModels.map(function(entry) {
+        if (!entry) return '';
+        if (entry.overflow) return 'overflow|' + entry.count;
+        return (entry.name || '') + '|' + (entry.skin1 || '') + '|' + (entry.skin2 || '');
+      }).join('::');
+      if (nextSig === _teamBoxSig) return;
+      _teamBoxSig = nextSig;
       playersEl.innerHTML = '';
+
       for (var i = 0; i < 5; i++) {
         var card = document.createElement('div');
-        var np = nativePlayers[i];
-        var skin1 = '', skin2 = '', name = '';
-        if (np) {
-          var nameEl = np.querySelector('.mame-brb-team-player-username');
-          name = nameEl ? nameEl.textContent.trim() : '';
-          // Collect both skin URLs regardless of display state
-          np.querySelectorAll('.mame-brb-team-player-preview').forEach(function(p) {
-            var bg = p.style.backgroundImage;
-            if (bg && bg !== 'none' && bg !== '') {
-              var url = bg.replace(/^url\(["']?/, '').replace(/["']?\)$/, '');
-              if (url && !skin1) skin1 = url;
-              else if (url && !skin2 && url !== skin1) skin2 = url;
-            }
-          });
-        }
-        var filled = !!name;
-        card.className = 'ryu-team-card' + (filled ? ' filled' : ' empty');
+        var model = slotModels[i];
+        var isOverflow = !!(model && model.overflow);
+        var skin1 = model && !isOverflow ? (model.skin1 || '') : '';
+        var skin2 = model && !isOverflow ? (model.skin2 || '') : '';
+        var name = model && !isOverflow ? (model.name || '') : '';
+        var filled = !!name || isOverflow;
+        card.className = 'ryu-team-card' + (filled ? ' filled' : ' empty') + (isOverflow ? ' ryu-team-card-overflow' : '');
 
-        // Split orb — left half skin1, right half skin2
         var skinDiv = document.createElement('div');
         skinDiv.className = 'ryu-team-card-skin';
         if (filled) {
@@ -1962,33 +2543,34 @@
           var splitLine = document.createElement('div');
           splitLine.className = 'ryu-team-orb-split';
 
-          var arrow = document.createElement('div');
-          arrow.className = 'ryu-team-copy-arrow';
-          arrow.textContent = '✓';
-
           skinDiv.appendChild(leftHalf);
           skinDiv.appendChild(rightHalf);
           skinDiv.appendChild(splitLine);
-          skinDiv.appendChild(arrow);
 
-          // Click — copy both skin URLs to Copied Skins section + show toast
-          (function(s1, s2, arrowEl) {
-            skinDiv.addEventListener('click', function(e) {
-              e.stopPropagation();
-              // Add to _csmCopied
-              [s1, s2].forEach(function(url) {
-                if (url && _csmCopied.indexOf(url) === -1) {
-                  _csmCopied.push(url);
-                }
-              });
-              saveCopied();
-              // Checkmark pop animation
-              arrowEl.classList.add('pop');
-              setTimeout(function() { arrowEl.classList.remove('pop'); }, 500);
-              // Show "Skins Copied" toast
-              showTeamCopyToast();
-            });
-          })(skin1, skin2, arrow);
+          if (!isOverflow) {
+            var arrow = document.createElement('div');
+            arrow.className = 'ryu-team-copy-arrow';
+            arrow.textContent = 'OK';
+            skinDiv.appendChild(arrow);
+
+            skinDiv.addEventListener('click', (function(s1, s2, arrowEl) {
+              return function(e) {
+                e.stopPropagation();
+                addSkinsToCopied([s1, s2]);
+                arrowEl.classList.add('pop');
+                setTimeout(function() { arrowEl.classList.remove('pop'); }, 500);
+              };
+            })(skin1, skin2, arrow));
+          }
+        }
+
+        if (isOverflow && hiddenTeamClients.length > 0) {
+          skinDiv.addEventListener('mouseenter', function() {
+            showTeamOverflowPopup(skinDiv, hiddenTeamClients);
+          });
+          skinDiv.addEventListener('mouseleave', function() {
+            hideTeamOverflowPopup(false);
+          });
         }
 
         var info = document.createElement('div');
@@ -1998,7 +2580,7 @@
         slotDiv.textContent = 'PLAYER ' + (i + 1);
         var nameDiv = document.createElement('div');
         nameDiv.className = 'ryu-team-card-name';
-        nameDiv.textContent = filled ? (name || '—') : '—';
+        nameDiv.textContent = isOverflow ? ((model.count || hiddenTeamClients.length || 1) + ' MORE') : (filled ? (name || '-') : '-');
         info.appendChild(slotDiv);
         info.appendChild(nameDiv);
         card.appendChild(skinDiv);
@@ -2016,7 +2598,7 @@
       var toast = document.createElement('div');
       toast.id = 'ryu-team-copy-toast';
       toast.className = 'ryu-team-copy-toast';
-      toast.innerHTML = '<div class="ryu-team-copy-toast-dot"></div>SKINS COPIED';
+      toast.innerHTML = '<div class="ryu-team-copy-toast-dot"></div>COPIED - CHECK COPIED SKINS';
       document.body.appendChild(toast);
       requestAnimationFrame(function() {
         requestAnimationFrame(function() { toast.classList.add('show'); });
@@ -2027,40 +2609,30 @@
       }, 1800);
     }
 
-    // Position below #ryu-menu-ui
-    function positionTeamBox() {
-      var mu = document.getElementById('ryu-menu-ui');
-      if (!mu) return;
-      var r = mu.getBoundingClientRect();
-      if (r.height > 0) {
-        var boxH = tb.offsetHeight || 96;
-        var desired = r.bottom + 6;
-        var max = window.innerHeight - boxH - 4;
-        tb.style.top = Math.min(desired, max) + 'px';
-      }
-    }
-
-    // Watch #main-menu style directly — same source as the game
-    new MutationObserver(function() {
+    // Watch #main-menu style directly Ã¢â‚¬â€ same source as the game
+    var teamVisibilityObserver = new MutationObserver(function() {
       var ms = mm.style;
       if (loadTheme().useDefault) { tb.classList.remove('ryu-team-visible'); return; }
       if (ms.display === 'none') {
         tb.classList.remove('ryu-team-visible');
+        hideTeamOverflowPopup(true);
       } else {
         tb.style.opacity    = ms.opacity    || '';
         tb.style.transition = ms.transition || '';
         tb.classList.add('ryu-team-visible');
-        // Position after two rAFs so #ryu-menu-ui has painted its display:grid state
-        requestAnimationFrame(function() {
-          requestAnimationFrame(function() { positionTeamBox(); });
-        });
+        positionTeamBox();
       }
-    }).observe(mm, { attributes: true, attributeFilter: ['style'] });
+    });
+    teamVisibilityObserver.observe(mm, { attributes: true, attributeFilter: ['style'] });
+    tb._ryuTeamVisibilityObserver = teamVisibilityObserver;
 
+    var teamSourceObserver = new MutationObserver(scheduleTeamRefresh);
+    teamSourceObserver.observe(mm, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['style', 'class'] });
+    tb._ryuTeamSourceObserver = teamSourceObserver;
+    tb._ryuTeamResizeHandler = positionTeamBox;
     window.addEventListener('resize', positionTeamBox);
-    setInterval(positionTeamBox, 500);
     refreshTeamBox();
-    setInterval(refreshTeamBox, 1000);
+    positionTeamBox();
   })();
 
 
@@ -2073,7 +2645,7 @@
   var _csmActiveSlot  = 0;  // 0 = Skin I, 1 = Skin II
   var _csmFavs        = [];
   var _csmCopied      = [];       // persisted to localStorage['ryuCsmCopied']
-  // Featured skins — curator-only, hardcoded, sourced from imgur album
+  // Featured skins Ã¢â‚¬â€ curator-only, hardcoded, sourced from imgur album
   var _csmFeatured = [
     'https://i.imgur.com/gztpA4g.png',
     'https://i.imgur.com/MdbbiNv.png',
@@ -2087,7 +2659,7 @@
     'https://i.imgur.com/rVHo8pO.png',
     'https://i.imgur.com/EsXORYN.png'
   ];
-  // Per-slot selected URL — independent state for each slot.
+  // Per-slot selected URL Ã¢â‚¬â€ independent state for each slot.
   // Seeded from __Ue on open; updated on every SELECT action.
   var _csmSlotUrl     = ['', ''];
   try { _csmFavs   = JSON.parse(localStorage.getItem('ryuCsmFavs')   || '[]'); } catch(e) {}
@@ -2140,12 +2712,42 @@
     try { localStorage.setItem('ryuCsmCopied', JSON.stringify(_csmCopied)); } catch(e) {}
   }
 
+  function copyTextToClipboard(text) {
+    text = String(text || '');
+    if (!text) return Promise.resolve(false);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).then(function() {
+        return true;
+      }).catch(function() {
+        return false;
+      });
+    }
+    return new Promise(function(resolve) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, text.length);
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch(_) {}
+        ta.remove();
+        resolve(!!ok);
+      } catch(_) {
+        resolve(false);
+      }
+    });
+  }
+
   function injectCSMStyle() {
     if (document.getElementById(CSM_STYLE_ID)) return;
     var s = document.createElement('style');
     s.id = CSM_STYLE_ID;
     s.textContent = `
-      /* ── Hide native CSM content permanently — visibility so layout is preserved ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Hide native CSM content permanently Ã¢â‚¬â€ visibility so layout is preserved Ã¢â€â‚¬Ã¢â€â‚¬ */
       #custom-skin-menu .layer__title,
       #custom-skin-menu #csm-container,
       #custom-skin-menu .layer__bottom-btns,
@@ -2154,13 +2756,13 @@
         pointer-events: none !important;
       }
 
-      /* ── Make layer transparent so game shows through ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Make layer transparent so game shows through Ã¢â€â‚¬Ã¢â€â‚¬ */
       #custom-skin-menu {
         background: transparent !important;
         pointer-events: none !important;
       }
 
-      /* ── Centered window — uses flex on the layer itself to avoid transform conflict ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Centered window Ã¢â‚¬â€ uses flex on the layer itself to avoid transform conflict Ã¢â€â‚¬Ã¢â€â‚¬ */
       #custom-skin-menu.ryu-csm-active {
         display: flex !important;
         align-items: center !important;
@@ -2168,7 +2770,7 @@
         pointer-events: all !important;
       }
 
-      /* ── Our injected UI is always visible on top ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Our injected UI is always visible on top Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-csm-injected {
         visibility: visible !important;
       }
@@ -2185,11 +2787,11 @@
         display: flex; flex-direction: column;
         font-family: 'Noto Sans', sans-serif;
         background: #0d1117;
-        border: 1px solid rgba(34,211,238,0.2);
+        border: 1px solid rgba(255,255,255,0.10);
         box-shadow:
           0 0 0 1px rgba(255,255,255,0.03),
           0 24px 80px rgba(0,0,0,0.9),
-          0 0 60px rgba(34,211,238,0.08);
+          0 0 60px rgba(255,255,255,0.05);
         overflow: hidden;
         flex-shrink: 0;
         opacity: 0;
@@ -2212,17 +2814,17 @@
         display: flex; align-items: center; justify-content: space-between;
         padding: 0 32px; height: 56px; flex-shrink: 0;
         background: #161b22;
-        border-bottom: 1px solid rgba(34,211,238,0.15);
+        border-bottom: 1px solid rgba(255,255,255,0.08);
         position: relative;
       }
       #ryu-csm-header::after {
         content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
-        background: linear-gradient(90deg, transparent, #22d3ee, transparent);
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
       }
       #ryu-csm-title {
         font-family: 'Noto Sans', sans-serif; font-size: 13px; font-weight: 900;
         letter-spacing: 5px; color: #fff;
-        text-shadow: 0 0 16px rgba(34,211,238,0.4);
+        text-shadow: none;
       }
       #ryu-csm-back-btn {
         height: 30px; padding: 0 16px;
@@ -2232,7 +2834,7 @@
         letter-spacing: 2px; cursor: pointer; outline: none; transition: all 0.15s;
         display: flex; align-items: center; gap: 6px;
       }
-      #ryu-csm-back-btn:hover { border-color: rgba(34,211,238,0.4); color: #fff; }
+      #ryu-csm-back-btn:hover { border-color: rgba(255,255,255,0.18); color: #fff; }
 
       /* Body */
       #ryu-csm-body { display: flex; flex: 1; min-height: 0; }
@@ -2255,11 +2857,11 @@
         transition: background 0.15s; border-left: 2px solid transparent;
         font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.4);
       }
-      .ryu-csm-sb-item:hover { background: rgba(34,211,238,0.05); border-left-color: rgba(34,211,238,0.3); color: #fff; }
-      .ryu-csm-sb-item.active { background: rgba(34,211,238,0.09); border-left-color: #22d3ee; color: #fff; }
+      .ryu-csm-sb-item:hover { background: rgba(255,255,255,0.05); border-left-color: rgba(255,255,255,0.18); color: #fff; }
+      .ryu-csm-sb-item.active { background: rgba(255,255,255,0.08); border-left-color: rgba(255,255,255,0.35); color: #fff; }
       .ryu-csm-sb-count {
         margin-left: auto; font-family: Arial, sans-serif;
-        font-size: 12px; color: rgba(34,211,238,0.85); font-weight: 700;
+        font-size: 12px; color: rgba(255,255,255,0.65); font-weight: 700;
       }
       .ryu-csm-sb-divider { height: 1px; background: rgba(255,255,255,0.04); margin: 10px 16px; }
 
@@ -2271,9 +2873,9 @@
         font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.35);
         position: relative;
       }
-      .ryu-csm-slot-btn:hover { background: rgba(34,211,238,0.05); color: #fff; }
+      .ryu-csm-slot-btn:hover { background: rgba(255,255,255,0.05); color: #fff; }
       .ryu-csm-slot-btn.active {
-        background: rgba(34,211,238,0.1); border-left-color: #22d3ee; color: #fff;
+        background: rgba(255,255,255,0.08); border-left-color: rgba(255,255,255,0.35); color: #fff;
       }
       .ryu-csm-slot-preview {
         width: 32px; height: 32px; border-radius: 50%;
@@ -2292,8 +2894,8 @@
       }
       #ryu-csm-grid-wrap::-webkit-scrollbar { width: 5px; }
       #ryu-csm-grid-wrap::-webkit-scrollbar-track { background: #161b22; }
-      #ryu-csm-grid-wrap::-webkit-scrollbar-thumb { background: rgba(34,211,238,0.3); border-radius: 3px; }
-      #ryu-csm-grid-wrap::-webkit-scrollbar-thumb:hover { background: #22d3ee; }
+      #ryu-csm-grid-wrap::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); border-radius: 3px; }
+      #ryu-csm-grid-wrap::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
 
       #ryu-csm-grid {
         display: grid;
@@ -2312,12 +2914,12 @@
         border-radius: 50%;
       }
       .ryu-csm-card:hover {
-        border-color: rgba(34,211,238,0.5);
+        border-color: rgba(255,255,255,0.18);
         box-shadow: 0 2px 16px rgba(0,0,0,0.5);
         transform: translateY(-2px);
       }
-      .ryu-csm-card.slot0-active { border-color: #22d3ee; box-shadow: 0 0 14px rgba(34,211,238,0.4); }
-      .ryu-csm-card.slot1-active { border-color: #22d3ee; box-shadow: 0 0 14px rgba(34,211,238,0.4); }
+      .ryu-csm-card.slot0-active { border-color: rgba(255,255,255,0.35); box-shadow: 0 0 14px rgba(255,255,255,0.12); }
+      .ryu-csm-card.slot1-active { border-color: rgba(255,255,255,0.35); box-shadow: 0 0 14px rgba(255,255,255,0.12); }
 
       .ryu-csm-card img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.15s; }
       .ryu-csm-card:hover img { transform: scale(1.06); }
@@ -2336,8 +2938,8 @@
         background: transparent; border: 1px solid rgba(255,255,255,0.18);
         color: rgba(255,255,255,0.65); cursor: pointer; outline: none; transition: all 0.15s;
       }
-      .ryu-csm-card-action.sel { border-color: rgba(34,211,238,0.5); color: rgba(34,211,238,0.9); }
-      .ryu-csm-card-action.sel:hover { background: rgba(34,211,238,0.2); color: #fff; border-color: #22d3ee; }
+      .ryu-csm-card-action.sel { border-color: rgba(255,255,255,0.18); color: rgba(255,255,255,0.88); }
+      .ryu-csm-card-action.sel:hover { background: rgba(255,255,255,0.10); color: #fff; border-color: rgba(255,255,255,0.3); }
       .ryu-csm-card-action:hover { background: rgba(255,255,255,0.08); color: #fff; }
       .ryu-csm-card-action.del:hover { background: rgba(200,0,0,0.15); border-color: rgba(200,0,0,0.5); color: #ff4444; }
 
@@ -2346,7 +2948,7 @@
         position: absolute; bottom: 0; left: 0; right: 0;
         font-family: 'Noto Sans', sans-serif; font-size: 7px; font-weight: 700; letter-spacing: 1px;
         color: #0d1117; text-align: center; padding: 4px 0;
-        background: rgba(34,211,238,0.9);
+        background: rgba(255,255,255,0.85);
       }
 
       /* Fav star */
@@ -2354,32 +2956,32 @@
         position: absolute; top: 0px; right: 0px;
         width: 20px; height: 20px; border-radius: 50%;
         background: rgba(0,0,0,0.75);
-        border: 1px solid rgba(34,211,238,0.6);
+        border: 1px solid rgba(255,255,255,0.18);
         display: flex; align-items: center; justify-content: center;
         font-size: 12px; cursor: pointer;
-        color: rgba(34,211,238,0.7);
+        color: rgba(255,255,255,0.7);
         transition: color 0.15s, background 0.15s, text-shadow 0.15s;
         z-index: 10;
       }
-      .ryu-csm-fav:hover { background: rgba(0,0,0,0.95); color: #22d3ee; }
+      .ryu-csm-fav:hover { background: rgba(0,0,0,0.95); color: rgba(255,255,255,0.96); }
       .ryu-csm-fav.on { color: #ffd700 !important; border-color: rgba(255,215,0,0.6) !important; text-shadow: 0 0 8px rgba(255,215,0,0.8) !important; }
 
-      /* Hide Pickr's own trigger button — we use our own swatch */
-      .pcr-button { display: none !important; }
+      /* Hide Pickr's own trigger button Ã¢â‚¬â€ we use our own swatch */
+      #ryu-csm-injected .pcr-button { display: none !important; }
 
-      /* Minus remove icon — Copied tab */
+      /* Minus remove icon Ã¢â‚¬â€ Copied tab */
       .ryu-csm-minus {
         position: absolute; top: -6px; left: -6px;
         width: 20px; height: 20px; border-radius: 50%;
-        background: #1c2128; border: 1px solid rgba(34,211,238,0.5);
+        background: #1c2128; border: 1px solid rgba(255,255,255,0.18);
         display: flex; align-items: center; justify-content: center;
         font-size: 14px; font-weight: 700; line-height: 1;
-        color: rgba(34,211,238,0.8); cursor: pointer;
+        color: rgba(255,255,255,0.78); cursor: pointer;
         transition: background 0.15s, border-color 0.15s, color 0.15s;
         z-index: 5;
       }
       .ryu-csm-minus:hover {
-        background: rgba(34,211,238,0.2); border-color: #22d3ee; color: #fff;
+        background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.3); color: #fff;
       }
 
       /* Card exit animation */
@@ -2390,19 +2992,19 @@
         pointer-events: none;
       }
 
-      /* Toast notification — bigger */
+      /* Toast notification Ã¢â‚¬â€ bigger */
       .ryu-csm-toast {
         position: fixed;
         bottom: 44px; left: 50%;
         transform: translateX(-50%) translateY(20px);
         background: #0d1117;
-        border: 1px solid rgba(34,211,238,0.5);
-        border-left: 4px solid #22d3ee;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-left: 4px solid rgba(255,255,255,0.35);
         padding: 13px 28px;
         font-family: 'Noto Sans', sans-serif;
         font-size: 11px; font-weight: 700; letter-spacing: 3px;
         color: #fff;
-        box-shadow: 0 0 24px rgba(34,211,238,0.3), 0 10px 40px rgba(0,0,0,0.8);
+        box-shadow: 0 0 24px rgba(0,0,0,0.28), 0 10px 40px rgba(0,0,0,0.8);
         opacity: 0;
         transition: opacity 200ms ease, transform 200ms ease;
         pointer-events: none;
@@ -2416,14 +3018,14 @@
       }
       .ryu-csm-toast-dot {
         width: 8px; height: 8px; border-radius: 50%;
-        background: #22d3ee; box-shadow: 0 0 10px #22d3ee; flex-shrink: 0;
+        background: rgba(255,255,255,0.85); box-shadow: none; flex-shrink: 0;
       }
       .ryu-csm-toast.fav { border-left-color: #ffd700; }
       .ryu-csm-toast.fav .ryu-csm-toast-dot { background: #ffd700; box-shadow: 0 0 10px rgba(255,215,0,0.8); }
       .ryu-csm-toast.unfav { border-left-color: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.1); }
       .ryu-csm-toast.unfav .ryu-csm-toast-dot { background: rgba(255,255,255,0.25); box-shadow: none; }
-      .ryu-csm-toast.sel { border-left-color: #22d3ee; }
-      .ryu-csm-toast.sel .ryu-csm-toast-dot { background: #22d3ee; box-shadow: 0 0 10px #22d3ee; }
+      .ryu-csm-toast.sel { border-left-color: rgba(255,255,255,0.35); }
+      .ryu-csm-toast.sel .ryu-csm-toast-dot { background: rgba(255,255,255,0.85); box-shadow: none; }
       .ryu-csm-toast.slot { border-left-color: rgba(255,255,255,0.4); border-color: rgba(255,255,255,0.12); }
       .ryu-csm-toast.slot .ryu-csm-toast-dot { background: rgba(255,255,255,0.5); box-shadow: none; }
 
@@ -2435,7 +3037,7 @@
       }
       #ryu-csm-url-label {
         font-family: 'Noto Sans', sans-serif; font-size: 8px; letter-spacing: 2px;
-        color: rgba(34,211,238,0.6); white-space: nowrap;
+        color: rgba(255,255,255,0.6); white-space: nowrap;
       }
       #ryu-csm-url-in {
         flex: 1; height: 34px; padding: 0 12px;
@@ -2443,16 +3045,16 @@
         color: #f0f0f0; font-family: 'Noto Sans', sans-serif;
         font-size: 13px; font-weight: 600; outline: none; transition: border-color 0.15s;
       }
-      #ryu-csm-url-in:focus { border-color: rgba(34,211,238,0.5); }
+      #ryu-csm-url-in:focus { border-color: rgba(255,255,255,0.18); }
       #ryu-csm-url-in::placeholder { color: rgba(255,255,255,0.18); }
       #ryu-csm-url-add {
         height: 34px; padding: 0 18px;
-        background: #22d3ee; border: none; color: #0d1117;
+        background: rgba(255,255,255,0.85); border: none; color: #0d1117;
         font-family: 'Noto Sans', sans-serif; font-size: 8px; font-weight: 800; letter-spacing: 2px;
         cursor: pointer; outline: none; transition: all 0.15s;
-        box-shadow: 0 2px 10px rgba(34,211,238,0.25);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.22);
       }
-      #ryu-csm-url-add:hover { filter: brightness(1.08); box-shadow: 0 2px 18px rgba(34,211,238,0.4); }
+      #ryu-csm-url-add:hover { filter: brightness(1.08); box-shadow: 0 2px 18px rgba(0,0,0,0.3); }
       #ryu-csm-skin-count {
         font-family: Arial, sans-serif; font-size: 12px; letter-spacing: 1px;
         color: rgba(255,255,255,0.6); font-weight: 700; white-space: nowrap;
@@ -2461,7 +3063,7 @@
     (document.head || document.documentElement).appendChild(s);
   }
 
-  // Helper — smoothly close the wrapper with animation, keep in DOM for instant reopen
+  // Helper Ã¢â‚¬â€ smoothly close the wrapper with animation, keep in DOM for instant reopen
   function closeCsmWrapper() {
     var ow = document.getElementById(CSM_INJECTED_ID);
     if (!ow) return;
@@ -2496,7 +3098,7 @@
       return;
     }
 
-    // Seed per-slot URL state from live game data — only if not already tracked
+    // Seed per-slot URL state from live game data Ã¢â‚¬â€ only if not already tracked
     function getSkin1Url() {
       try { var ue = window.__Ue; if (ue && ue._3901) return ue._3901._9315 || ''; } catch(e) {}
       return '';
@@ -2511,14 +3113,28 @@
     // Read all skin URLs from the native grid
     function getSkinUrls() {
       var urls = [];
+      var seen = new Set();
       document.querySelectorAll('.csm-skin-selector').forEach(function(sel) {
         var img = sel.querySelector('.csm-skin-selector-image');
-        if (img && img.src) urls.push(img.src);
+        if (img && img.src && !seen.has(img.src)) {
+          seen.add(img.src);
+          urls.push(img.src);
+        }
       });
+      try {
+        var stored = JSON.parse(localStorage.getItem('custom-skin-urls') || '[]');
+        if (Array.isArray(stored)) {
+          stored.forEach(function(url) {
+            if (!url || seen.has(url)) return;
+            seen.add(url);
+            urls.push(url);
+          });
+        }
+      } catch(e) {}
       return urls;
     }
 
-    // Prune stale favorites — remove any entry that is neither in native storage nor featured
+    // Prune stale favorites Ã¢â‚¬â€ remove any entry that is neither in native storage nor featured
     (function pruneStaleFavs() {
       var liveUrls = getSkinUrls();
       var before = _csmFavs.length;
@@ -2548,6 +3164,14 @@
       var overlayBtns = '<button class="ryu-csm-card-action sel">✓ SELECT</button>';
       if (ctx === 'all') {
         overlayBtns += '<button class="ryu-csm-card-action del">✕ DELETE</button>';
+      }
+
+      overlayBtns = '<button class="ryu-csm-card-action sel">SELECT</button>';
+      if (ctx === 'all' || ctx === 'copied') {
+        overlayBtns += '<button class="ryu-csm-card-action copy">COPY</button>';
+      }
+      if (ctx === 'all') {
+        overlayBtns += '<button class="ryu-csm-card-action del">DELETE</button>';
       }
 
       cardInner.innerHTML =
@@ -2586,7 +3210,7 @@
             if (_csmActiveSlot === 0) window.__Ue._3901._9315 = url;
             if (_csmActiveSlot === 1) window.__Ue._3901._8053 = url;
           }
-          // persist exactly like native SELECT — write to user-data[2] / user-data[3]
+          // persist exactly like native SELECT Ã¢â‚¬â€ write to user-data[2] / user-data[3]
           try {
             var ud = JSON.parse(localStorage.getItem('user-data'));
             if (Array.isArray(ud)) {
@@ -2629,6 +3253,21 @@
         showCsmToast('SKIN ' + (_csmActiveSlot === 0 ? 'I' : 'II') + ' SELECTED', 'sel');
       });
 
+      if (ctx === 'all' || ctx === 'copied') {
+        card.querySelector('.ryu-csm-card-action.copy').addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (_csmCopied.indexOf(url) === -1) {
+            _csmCopied.push(url);
+            saveCopied();
+          }
+          var secCopiedCount = document.querySelector('#ryu-csm-sec-copied .ryu-csm-sb-count');
+          if (secCopiedCount) secCopiedCount.textContent = _csmCopied.length;
+          copyTextToClipboard(url).then(function(ok) {
+            showCsmToast(ok ? 'COPIED TO CLIPBOARD' : 'COPIED TO LIST', 'sel');
+          });
+        });
+      }
+
       // DELETE
       if (ctx === 'all') {
         card.querySelector('.ryu-csm-card-action.del').addEventListener('click', function(e) {
@@ -2637,7 +3276,7 @@
           // Confirmation popup
           var confirm = document.createElement('div');
           confirm.style.cssText = 'position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;';
-          confirm.innerHTML = '<div style="background:#0d1117;border:1px solid rgba(34,211,238,0.3);border-radius:10px;padding:28px 32px;display:flex;flex-direction:column;align-items:center;gap:16px;min-width:280px;">' +
+          confirm.innerHTML = '<div style="background:#0d1117;border:1px solid rgba(255,255,255,0.14);border-radius:10px;padding:28px 32px;display:flex;flex-direction:column;align-items:center;gap:16px;min-width:280px;">' +
             '<div style="font-family:\'Noto Sans\',sans-serif;font-size:13px;font-weight:700;color:rgba(255,255,255,0.8);letter-spacing:1px;">DELETE SKIN?</div>' +
             '<div style="font-family:\'Noto Sans\',sans-serif;font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:1px;text-align:center;">This will permanently remove the skin<br>from your collection.</div>' +
             '<div style="display:flex;gap:10px;margin-top:4px;">' +
@@ -2778,7 +3417,9 @@
               'Skin II',
             '</div>',
             '<div class="ryu-csm-sb-divider"></div>',
-            '<button id="ryu-csm-reset-backup-btn" style="display:flex;align-items:center;gap:8px;width:100%;padding:10px 16px;background:transparent;border:none;border-left:2px solid transparent;color:rgba(34,211,238,0.45);font-family:\'Noto Sans\',sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;cursor:pointer;text-align:left;transition:background 0.15s,color 0.15s,border-left-color 0.15s;box-sizing:border-box;"><span style="font-size:13px;line-height:1;">↓</span>BACKUP SKINS</button>',
+            '<button id="ryu-csm-reset-backup-btn" style="display:flex;align-items:center;gap:8px;width:100%;padding:10px 16px;background:transparent;border:none;border-left:2px solid transparent;color:rgba(255,255,255,0.45);font-family:\'Noto Sans\',sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;cursor:pointer;text-align:left;transition:background 0.15s,color 0.15s,border-left-color 0.15s;box-sizing:border-box;"><span style="font-size:13px;line-height:1;">↓</span>BACKUP SKINS</button>',
+            '<button id="ryu-csm-load-backup-btn" style="display:flex;align-items:center;gap:8px;width:100%;padding:10px 16px;background:transparent;border:none;border-left:2px solid transparent;color:rgba(255,255,255,0.45);font-family:\'Noto Sans\',sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;cursor:pointer;text-align:left;transition:background 0.15s,color 0.15s,border-left-color 0.15s;box-sizing:border-box;"><span style="font-size:13px;line-height:1;">↑</span>LOAD SKINS</button>',
+            '<button id="ryu-csm-delete-all-btn" style="display:flex;align-items:center;gap:8px;width:100%;padding:10px 16px;background:transparent;border:none;border-left:2px solid transparent;color:rgba(255,255,255,0.45);font-family:\'Noto Sans\',sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;cursor:pointer;text-align:left;transition:background 0.15s,color 0.15s,border-left-color 0.15s;box-sizing:border-box;"><span style="font-size:13px;line-height:1;">X</span>DELETE ALL SKINS</button>',
           '</div>',
           '<div id="ryu-csm-content">',
             '<div id="ryu-csm-grid-wrap"><div id="ryu-csm-grid"></div></div>',
@@ -2840,7 +3481,7 @@
     // Wire all sidebar/footer/back/ESC interactions
     function wireUI() {
 
-      // Section tabs — only replace grid content, not full wrapper
+      // Section tabs Ã¢â‚¬â€ only replace grid content, not full wrapper
       function switchSection(newSection) {
         if (_csmSection === newSection) return;
         _csmSection = newSection;
@@ -2894,7 +3535,7 @@
       if (secCopied)   secCopied.addEventListener('click',  function() { switchSection('copied'); });
       if (secFeatured) secFeatured.addEventListener('click', function() { switchSection('featured'); });
 
-      // Slot buttons — no rebuild, only update active styling + re-stamp badges + toast
+      // Slot buttons Ã¢â‚¬â€ no rebuild, only update active styling + re-stamp badges + toast
       var slot0 = document.getElementById('ryu-csm-slot0');
       var slot1 = document.getElementById('ryu-csm-slot1');
       if (slot0) slot0.addEventListener('click', function() {
@@ -2914,19 +3555,41 @@
         showCsmToast('SKIN II ACTIVE', 'slot');
       });
 
-      // Backup skins button
+      // Backup/load skins buttons
       var resetBackupBtn = document.getElementById('ryu-csm-reset-backup-btn');
+      var loadBackupBtn = document.getElementById('ryu-csm-load-backup-btn');
+      var deleteAllBtn = document.getElementById('ryu-csm-delete-all-btn');
+      var loadBackupInput = document.createElement('input');
+      loadBackupInput.type = 'file';
+      loadBackupInput.accept = '.txt,text/plain';
+      loadBackupInput.style.display = 'none';
+      document.body.appendChild(loadBackupInput);
+      function bindSidebarButtonHover(btn) {
+        if (!btn) return;
+        btn.addEventListener('mouseenter', function() {
+          btn.style.background = 'rgba(255,255,255,0.06)';
+          btn.style.color = 'rgba(255,255,255,0.92)';
+          btn.style.borderLeftColor = 'rgba(255,255,255,0.4)';
+        });
+        btn.addEventListener('mouseleave', function() {
+          btn.style.background = 'transparent';
+          btn.style.color = 'rgba(255,255,255,0.45)';
+          btn.style.borderLeftColor = 'transparent';
+        });
+      }
+      function rebuildCsmView() {
+        var old = document.getElementById(CSM_INJECTED_ID);
+        if (old) old.remove();
+        buildUI();
+        requestAnimationFrame(function() {
+          requestAnimationFrame(function() {
+            var w = document.getElementById(CSM_INJECTED_ID);
+            if (w) w.classList.add('ryu-csm-visible');
+          });
+        });
+      }
       if (resetBackupBtn) {
-        resetBackupBtn.addEventListener('mouseenter', function() {
-          resetBackupBtn.style.background = 'rgba(34,211,238,0.06)';
-          resetBackupBtn.style.color = '#22d3ee';
-          resetBackupBtn.style.borderLeftColor = 'rgba(34,211,238,0.5)';
-        });
-        resetBackupBtn.addEventListener('mouseleave', function() {
-          resetBackupBtn.style.background = 'transparent';
-          resetBackupBtn.style.color = 'rgba(34,211,238,0.45)';
-          resetBackupBtn.style.borderLeftColor = 'transparent';
-        });
+        bindSidebarButtonHover(resetBackupBtn);
         resetBackupBtn.addEventListener('click', function() {
           var urls = getSkinUrls();
           var content = 'RyuTheme Skin Backup\n' + new Date().toLocaleString() + '\nSkin Count: ' + urls.length + '\n\n' + urls.join('\n');
@@ -2939,8 +3602,96 @@
           showCsmToast('BACKUP DOWNLOADED', 'sel');
         });
       }
+      if (loadBackupBtn) {
+        bindSidebarButtonHover(loadBackupBtn);
+        loadBackupBtn.addEventListener('click', function() {
+          loadBackupInput.value = '';
+          loadBackupInput.click();
+        });
+      }
+      if (deleteAllBtn) {
+        bindSidebarButtonHover(deleteAllBtn);
+        deleteAllBtn.addEventListener('click', function() {
+          var confirm = document.createElement('div');
+          confirm.style.cssText = 'position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;';
+          confirm.innerHTML = '<div style="background:#0d1117;border:1px solid rgba(255,255,255,0.14);border-radius:10px;padding:28px 32px;display:flex;flex-direction:column;align-items:center;gap:16px;min-width:300px;">' +
+            '<div style="font-family:\'Noto Sans\',sans-serif;font-size:13px;font-weight:700;color:rgba(255,255,255,0.8);letter-spacing:1px;">DELETE ALL SKINS?</div>' +
+            '<div style="font-family:\'Noto Sans\',sans-serif;font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:1px;text-align:center;">This will remove every saved skin<br>from your collection.</div>' +
+            '<div style="display:flex;gap:10px;margin-top:4px;">' +
+              '<button id="ryu-del-all-cancel" style="height:36px;padding:0 20px;background:transparent;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:rgba(255,255,255,0.5);font-family:\'Noto Sans\',sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;cursor:pointer;">CANCEL</button>' +
+              '<button id="ryu-del-all-confirm" style="height:36px;padding:0 20px;background:rgba(200,0,0,0.2);border:1px solid rgba(200,0,0,0.4);border-radius:6px;color:#ff4444;font-family:\'Noto Sans\',sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;cursor:pointer;">DELETE</button>' +
+            '</div>' +
+          '</div>';
+          document.body.appendChild(confirm);
 
-      // Back button — smooth close animation then native back
+          confirm.querySelector('#ryu-del-all-cancel').addEventListener('click', function() { confirm.remove(); });
+          confirm.addEventListener('click', function(ev) { if (ev.target === confirm || ev.target === confirm.firstElementChild) confirm.remove(); });
+          function onDelAllEsc(e) { if (e.key === 'Escape') { document.removeEventListener('keydown', onDelAllEsc); confirm.remove(); } }
+          document.addEventListener('keydown', onDelAllEsc);
+
+          confirm.querySelector('#ryu-del-all-confirm').addEventListener('click', function() {
+            document.removeEventListener('keydown', onDelAllEsc);
+            confirm.remove();
+            try {
+              document.querySelectorAll('.csm-skin-selector').forEach(function(nSel) {
+                var delBtn = nSel.querySelectorAll('.csm-skin-selector-button')[2];
+                if (delBtn) delBtn.click();
+              });
+            } catch (_) {}
+            localStorage.setItem('custom-skin-urls', JSON.stringify([]));
+            _csmFavs = [];
+            _csmCopied = [];
+            saveFavs();
+            saveCopied();
+            rebuildCsmView();
+            showCsmToast('ALL SKINS DELETED', 'del');
+          });
+        });
+      }
+      loadBackupInput.addEventListener('change', function() {
+        var file = loadBackupInput.files && loadBackupInput.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          try {
+            var text = String((e && e.target && e.target.result) || '');
+            var matches = text.match(/https?:\/\/[^\s"'<>]+/gi) || [];
+            var imported = [];
+            var seen = new Set();
+            matches.forEach(function(url) {
+              url = url.trim();
+              if (!/^https?:\/\//i.test(url)) return;
+              if (!/\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(url)) return;
+              if (seen.has(url)) return;
+              seen.add(url);
+              imported.push(url);
+            });
+            if (!imported.length) {
+              showCsmToast('NO VALID SKINS FOUND', 'unfav');
+              return;
+            }
+            var current = [];
+            try { current = JSON.parse(localStorage.getItem('custom-skin-urls') || '[]'); } catch(_) {}
+            if (!Array.isArray(current)) current = [];
+            var merged = current.slice();
+            var added = 0;
+            imported.forEach(function(url) {
+              if (merged.indexOf(url) !== -1) return;
+              merged.push(url);
+              added++;
+              preloadCsmSkin(url);
+            });
+            localStorage.setItem('custom-skin-urls', JSON.stringify(merged));
+            rebuildCsmView();
+            showCsmToast(added > 0 ? (added + ' SKINS LOADED') : 'SKINS ALREADY ADDED', 'sel');
+          } catch(_) {
+            showCsmToast('INVALID BACKUP FILE', 'unfav');
+          }
+        };
+        reader.readAsText(file);
+      });
+
+      // Back button Ã¢â‚¬â€ smooth close animation then native back
       var backBtn = document.getElementById('ryu-csm-back-btn');
       if (backBtn) backBtn.addEventListener('click', function() {
         var nativeBack = document.getElementById('csm-back-button');
@@ -2948,7 +3699,7 @@
         closeCsmWrapper();
       });
 
-      // ESC — watch display:none after menu was fully open; use smooth close
+      // ESC Ã¢â‚¬â€ watch display:none after menu was fully open; use smooth close
       if (csmEl._ryuObserver) csmEl._ryuObserver.disconnect();
       var _csmMenuOpen = false;
       var csmObserver = new MutationObserver(function() {
@@ -3043,16 +3794,16 @@
       modal.id = 'ryu-csm-backup-modal';
       modal.style.cssText = 'position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;';
       modal.innerHTML = [
-        '<div style="background:#0d1117;border:1px solid rgba(34,211,238,0.25);border-radius:12px;padding:32px 28px;max-width:340px;width:90%;text-align:center;position:relative;">',
+        '<div style="background:#0d1117;border:1px solid rgba(255,255,255,0.14);border-radius:12px;padding:32px 28px;max-width:340px;width:90%;text-align:center;position:relative;">',
           '<button id="ryu-csm-backup-x" style="position:absolute;top:12px;right:14px;background:transparent;border:none;color:rgba(255,255,255,0.3);font-size:16px;cursor:pointer;line-height:1;padding:0;font-family:sans-serif;">✕</button>',
-          '<div style="color:#22d3ee;font-family:sans-serif;font-size:11px;letter-spacing:1px;font-weight:700;margin-bottom:12px;">SKIN BACKUP</div>',
-          '<div style="color:rgba(255,255,255,0.75);font-family:sans-serif;font-size:13px;line-height:1.6;margin-bottom:20px;">It is recommended to back up your skins as a precaution.<br><br>You can also click <strong style="color:#22d3ee;">BACKUP SKINS</strong> in the sidebar at any time.</div>',
+          '<div style="color:rgba(255,255,255,0.88);font-family:sans-serif;font-size:11px;letter-spacing:1px;font-weight:700;margin-bottom:12px;">SKIN BACKUP</div>',
+          '<div style="color:rgba(255,255,255,0.75);font-family:sans-serif;font-size:13px;line-height:1.6;margin-bottom:20px;">It is recommended to back up your skins as a precaution.<br><br>You can also click <strong style="color:rgba(255,255,255,0.92);">BACKUP SKINS</strong> in the sidebar at any time.</div>',
           '<div style="display:flex;gap:12px;justify-content:center;margin-bottom:20px;">',
-            '<button id="ryu-csm-backup-yes" style="background:rgba(34,211,238,0.12);border:1px solid rgba(34,211,238,0.35);color:#22d3ee;font-family:sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;padding:10px 28px;border-radius:6px;cursor:pointer;">YES</button>',
+            '<button id="ryu-csm-backup-yes" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.18);color:rgba(255,255,255,0.92);font-family:sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;padding:10px 28px;border-radius:6px;cursor:pointer;">YES</button>',
           '</div>',
           '<div style="display:flex;justify-content:center;">',
             '<label id="ryu-csm-dna-label" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">',
-              '<input type="checkbox" id="ryu-csm-backup-dna" style="width:14px;height:14px;accent-color:#22d3ee;cursor:pointer;">',
+              '<input type="checkbox" id="ryu-csm-backup-dna" style="width:14px;height:14px;accent-color:#ffffff;cursor:pointer;">',
               '<span style="color:rgba(255,255,255,0.35);font-family:sans-serif;font-size:11px;letter-spacing:0.5px;">Do not show again</span>',
             '</label>',
           '</div>',
@@ -3110,6 +3861,103 @@
   }
   globalThis.__ryuShowToast = showCsmToast;
 
+  var RYU_CUSTOM_BADGE_TITLES = [
+    {
+      id: 'TITLE_RYUTHEME_TESTER',
+      name: 'Tester Badge',
+      file: 'assets/badges/TESTER_BADGE_1.png',
+      locked: true
+    },
+    {
+      id: 'TITLE_RYUTHEME_DM',
+      name: 'DM Badge',
+      file: 'assets/badges/DM_BADGE_1.png',
+      locked: false,
+      isFree: true
+    }
+  ];
+
+  function ryuCustomBadgeAssetUrl(path) {
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) {
+      return chrome.runtime.getURL(path);
+    }
+    var origin = '';
+    try {
+      origin = document.documentElement.getAttribute('data-ryu-ext-origin') || '';
+    } catch (e) {}
+    if (origin) return origin + '/' + String(path || '').replace(/^\/+/, '');
+    return path;
+  }
+
+  function getRyuCustomBadgeTitle(badgeId) {
+    for (var i = 0; i < RYU_CUSTOM_BADGE_TITLES.length; i++) {
+      if (RYU_CUSTOM_BADGE_TITLES[i].id === badgeId) return RYU_CUSTOM_BADGE_TITLES[i];
+    }
+    return null;
+  }
+
+  function registerRyuCustomBadgeTitles() {
+    var info = globalThis.__ryuCustomTitlesInfo = globalThis.__ryuCustomTitlesInfo || {};
+    var urls = globalThis.__ryuCustomTitleImageUrls = globalThis.__ryuCustomTitleImageUrls || {};
+    RYU_CUSTOM_BADGE_TITLES.forEach(function(item) {
+      info[item.id] = { name: item.name, text: '', pid: item.id };
+      urls[item.id] = ryuCustomBadgeAssetUrl(item.file);
+    });
+    if (globalThis.__ryuTitleRenderer && globalThis.__ryuTitleRenderer._2711) {
+      Object.assign(globalThis.__ryuTitleRenderer._2711, info);
+      if (globalThis.__ryuTitleRenderer._2480) {
+        RYU_CUSTOM_BADGE_TITLES.forEach(function(item) {
+          globalThis.__ryuTitleRenderer._2480.delete(item.id);
+        });
+      }
+    }
+  }
+
+  function applyApprovedRyuBadgeTitle(badgeId) {
+    var item = getRyuCustomBadgeTitle(badgeId);
+    if (!item) return false;
+    registerRyuCustomBadgeTitles();
+    if (globalThis.__ryuMe && typeof globalThis.__ryuMe._5518 === 'function') {
+      globalThis.__ryuMe._5518(item.id);
+    }
+    globalThis.__ryuCustomActiveTitle = item.id;
+    if (globalThis.__ryuPe && globalThis.__ryuPe._2874) globalThis.__ryuPe._2874.title = item.id;
+    if (globalThis.__ryuBe && globalThis.__ryuBe._1059) globalThis.__ryuBe._1059._6302 = item.id;
+    if (!globalThis.__ryuSuppressBadgeToast && globalThis.__ryuShowToast) globalThis.__ryuShowToast(item.name + ' applied.', 'success');
+    return true;
+  }
+
+  globalThis.__ryuRegisterCustomBadgeTitles = registerRyuCustomBadgeTitles;
+  globalThis.__ryuApplyApprovedBadgeTitle = applyApprovedRyuBadgeTitle;
+  registerRyuCustomBadgeTitles();
+
+  function restoreStoredRyuBadge(attempts) {
+    attempts = typeof attempts === 'number' ? attempts : 0;
+    if (attempts > 300) return;
+    var stored = '';
+    try { stored = localStorage.getItem('ryuActiveCustomBadge') || ''; } catch (_) {}
+    if (!stored || !getRyuCustomBadgeTitle(stored)) return;
+
+    globalThis.__ryuCustomActiveTitle = stored;
+    if (globalThis.__ryuPe && globalThis.__ryuPe._2874) globalThis.__ryuPe._2874.title = stored;
+    if (globalThis.__ryuBe && globalThis.__ryuBe._1059) globalThis.__ryuBe._1059._6302 = stored;
+
+    // Title hooks can initialize a bit later than this file; retry until ready.
+    var hasLiveTitleHook = !!(globalThis.__ryuMe && typeof globalThis.__ryuMe._5518 === 'function');
+    if (!hasLiveTitleHook) {
+      setTimeout(function() { restoreStoredRyuBadge(attempts + 1); }, 200);
+      return;
+    }
+    var prevSuppress = globalThis.__ryuSuppressBadgeToast;
+    globalThis.__ryuSuppressBadgeToast = true;
+    try {
+      applyApprovedRyuBadgeTitle(stored);
+    } finally {
+      globalThis.__ryuSuppressBadgeToast = prevSuppress;
+    }
+  }
+  restoreStoredRyuBadge(0);
+
   // SHOP MENU
   var SHOP_STYLE_ID    = 'ryu-shop-style';
   var SHOP_INJECTED_ID = 'ryu-shop-injected';
@@ -3120,7 +3968,7 @@
     var s = document.createElement('style');
     s.id = SHOP_STYLE_ID;
     s.textContent = `
-      /* ── Hide native shop content permanently ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Hide native shop content permanently Ã¢â€â‚¬Ã¢â€â‚¬ */
       #shop-menu .layer__title,
       #shop-menu .shop-wallet,
       #shop-menu .shop-container,
@@ -3131,7 +3979,7 @@
         visibility: hidden !important;
       }
 
-      /* ── Make layer transparent ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Make layer transparent Ã¢â€â‚¬Ã¢â€â‚¬ */
       #shop-menu {
         background: transparent !important;
         pointer-events: none !important;
@@ -3142,7 +3990,7 @@
         justify-content: center !important;
       }
 
-      /* ── Our injected UI is always visible on top ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Our injected UI is always visible on top Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-shop-injected {
         position: fixed;
         top: 50%;
@@ -3156,7 +4004,7 @@
         flex-direction: column;
         font-family: 'Noto Sans', sans-serif;
         background: #0d1117;
-        border: 1px solid rgba(34,211,238,0.2);
+        border: 1px solid rgba(255,255,255,0.14);
         box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 24px 80px rgba(0,0,0,0.9);
         overflow: hidden;
         flex-shrink: 0;
@@ -3174,7 +4022,7 @@
         transition: opacity 140ms ease-in, transform 140ms ease-in;
       }
 
-      /* ── Header ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Header Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-shop-header {
         display: flex;
         align-items: center;
@@ -3182,7 +4030,7 @@
         padding: 0 28px;
         height: 52px;
         background: #111820;
-        border-bottom: 1px solid rgba(34,211,238,0.12);
+        border-bottom: 1px solid rgba(255,255,255,0.08);
         flex-shrink: 0;
       }
       #ryu-shop-header-left {
@@ -3210,8 +4058,8 @@
         text-transform: uppercase;
       }
       .ryu-shop-tab.ryu-shop-tab-active {
-        background: rgba(34,211,238,0.12);
-        color: #22d3ee;
+        background: rgba(255,255,255,0.1);
+        color: rgba(255,255,255,0.92);
       }
       .ryu-shop-tab:hover:not(.ryu-shop-tab-active) {
         color: rgba(255,255,255,0.6);
@@ -3243,8 +4091,8 @@
         line-height: 1;
       }
       .ryu-shop-wallet-rc {
-        background: rgba(34,211,238,0.06);
-        border: 1px solid rgba(34,211,238,0.2);
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.12);
         color: rgba(255,255,255,0.7);
       }
       .ryu-shop-wallet-rc .ryu-shop-wallet-icon {
@@ -3264,11 +4112,11 @@
         transition: all 0.15s;
       }
       #ryu-shop-back-btn:hover {
-        border-color: rgba(34,211,238,0.3);
-        color: rgba(255,255,255,0.7);
+        border-color: rgba(255,255,255,0.18);
+        color: rgba(255,255,255,0.9);
       }
 
-      /* ── Grid ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Grid Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-shop-grid {
         flex: 1;
         overflow-y: auto;
@@ -3280,9 +4128,9 @@
       }
       #ryu-shop-grid::-webkit-scrollbar { width: 3px; }
       #ryu-shop-grid::-webkit-scrollbar-track { background: transparent; }
-      #ryu-shop-grid::-webkit-scrollbar-thumb { background: rgba(34,211,238,0.2); border-radius: 2px; }
+      #ryu-shop-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); border-radius: 2px; }
 
-      /* ── Item card ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Item card Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-shop-card {
         background: #131a22;
         border: 1px solid rgba(255,255,255,0.05);
@@ -3293,11 +4141,11 @@
         transition: border-color 0.15s, box-shadow 0.15s;
       }
       .ryu-shop-card:hover {
-        border-color: rgba(34,211,238,0.3);
-        box-shadow: 0 0 12px rgba(34,211,238,0.06);
+        border-color: rgba(255,255,255,0.18);
+        box-shadow: 0 0 12px rgba(255,255,255,0.04);
       }
       .ryu-shop-card.ryu-shop-card-equipped {
-        border-color: rgba(34,211,238,0.45);
+        border-color: rgba(255,255,255,0.28);
       }
       .ryu-shop-card-preview {
         height: 180px;
@@ -3315,12 +4163,35 @@
         position: absolute;
         top: 6px;
         right: 6px;
-        background: #22d3ee;
+        background: rgba(255,255,255,0.85);
         color: #000;
         font-size: 8px;
         font-weight: 900;
         letter-spacing: 1px;
         padding: 2px 6px;
+      }
+      .ryu-shop-card-lock-badge {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0,0,0,0.58);
+        border: 1px solid rgba(255,255,255,0.22);
+        color: rgba(255,255,255,0.92);
+        font-size: 16px;
+        line-height: 1;
+      }
+      .ryu-shop-card.ryu-shop-card-locked {
+        cursor: default;
+        opacity: 0.58;
+      }
+      .ryu-shop-card.ryu-shop-card-locked:hover {
+        border-color: rgba(255,255,255,0.05);
+        box-shadow: none;
       }
       .ryu-shop-card-info {
         padding: 10px 12px;
@@ -3355,20 +4226,20 @@
         font-weight: 700;
       }
       .ryu-shop-price-free {
-        background: rgba(34,211,238,0.1);
+        background: rgba(255,255,255,0.08);
         padding: 2px 8px;
         display: inline-block;
         font-size: 11px;
         font-weight: 900;
         letter-spacing: 1px;
-        color: #22d3ee;
+        color: rgba(255,255,255,0.92);
       }
 
-      /* ── Footer ── */
+      /* Ã¢â€â‚¬Ã¢â€â‚¬ Footer Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-shop-footer {
         height: 32px;
         background: #0a0d12;
-        border-top: 1px solid rgba(34,211,238,0.08);
+        border-top: 1px solid rgba(255,255,255,0.06);
         display: flex;
         align-items: center;
         padding: 0 28px;
@@ -3412,6 +4283,130 @@
     var shopEl = document.getElementById('shop-menu');
     if (!shopEl) return;
 
+    var RYU_BADGE_TITLES = [
+      {
+        id: 'TITLE_RYUTHEME_TESTER',
+        name: 'Tester Badge',
+        file: 'assets/badges/TESTER_BADGE_1.png',
+        locked: true
+      },
+      {
+        id: 'TITLE_RYUTHEME_DM',
+        name: 'DM Badge',
+        file: 'assets/badges/DM_BADGE_1.png',
+        locked: false,
+        isFree: true
+      }
+    ];
+
+    function ryuAssetUrl(path) {
+      return ryuCustomBadgeAssetUrl(path);
+    }
+
+    function registerRyuBadgeTitles() {
+      var info = globalThis.__ryuCustomTitlesInfo = globalThis.__ryuCustomTitlesInfo || {};
+      var urls = globalThis.__ryuCustomTitleImageUrls = globalThis.__ryuCustomTitleImageUrls || {};
+      RYU_BADGE_TITLES.forEach(function(item) {
+        info[item.id] = { name: item.name, text: '', pid: item.id };
+        urls[item.id] = ryuAssetUrl(item.file);
+      });
+      if (globalThis.__ryuTitleRenderer && globalThis.__ryuTitleRenderer._2711) {
+        Object.assign(globalThis.__ryuTitleRenderer._2711, info);
+        if (globalThis.__ryuTitleRenderer._2480) {
+          RYU_BADGE_TITLES.forEach(function(item) {
+            globalThis.__ryuTitleRenderer._2480.delete(item.id);
+          });
+        }
+      }
+      if (globalThis.__ryuPe && globalThis.__ryuPe._1763) {
+        RYU_BADGE_TITLES.forEach(function(item) {
+          if (globalThis.__ryuHasBadgeEntitlement && globalThis.__ryuHasBadgeEntitlement(item.id)) {
+            globalThis.__ryuPe._1763[item.id] = { name: item.name, desc: 'Ryutheme custom title' };
+          }
+        });
+      }
+    }
+
+    function getActiveRyuBadgeId() {
+      var known = Object.create(null);
+      RYU_BADGE_TITLES.forEach(function(item) { known[item.id] = true; });
+      var id = '';
+      try {
+        id = globalThis.__ryuCustomActiveTitle || '';
+      } catch (_) {}
+      if (!id) {
+        try { id = globalThis.__ryuBe && globalThis.__ryuBe._1059 ? globalThis.__ryuBe._1059._6302 : ''; } catch (_) {}
+      }
+      if (!id) {
+        try { id = globalThis.__ryuPe && globalThis.__ryuPe._2874 ? globalThis.__ryuPe._2874.title : ''; } catch (_) {}
+      }
+      if (!id) {
+        try { id = localStorage.getItem('ryuActiveCustomBadge') || ''; } catch (_) {}
+      }
+      return known[id] ? id : '';
+    }
+
+    function applyRyuBadgeTitle(item) {
+      registerRyuBadgeTitles();
+      if (globalThis.__ryuRequestBadgeEquip) {
+        var activeId = getActiveRyuBadgeId();
+        globalThis.__ryuRequestBadgeEquip(activeId === item.id ? '' : item.id);
+      } else if (globalThis.__ryuShowToast) {
+        globalThis.__ryuShowToast('Ryutheme relay is not connected yet.', 'error');
+      }
+    }
+
+    function showTesterBadgePasswordPrompt(item) {
+      var existing = document.getElementById('ryu-badge-password');
+      if (existing) existing.remove();
+
+      var overlay = document.createElement('div');
+      overlay.id = 'ryu-badge-password';
+      overlay.style.cssText = 'position:absolute;inset:0;background:rgba(9,13,18,0.88);display:flex;align-items:center;justify-content:center;z-index:12;';
+
+      var box = document.createElement('div');
+      box.style.cssText = 'background:#111820;border:1px solid rgba(255,255,255,0.12);padding:26px 32px;display:flex;flex-direction:column;gap:14px;min-width:330px;font-family:\'Noto Sans\',sans-serif;';
+      box.innerHTML =
+        '<div style="font-size:9px;font-weight:900;letter-spacing:4px;color:rgba(255,255,255,0.4);">UNLOCK BADGE</div>' +
+        '<div style="font-size:14px;font-weight:800;color:#fff;">' + item.name + '</div>' +
+        '<input id="ryu-badge-password-input" type="password" autocomplete="off" spellcheck="false" placeholder="Password" style="height:34px;background:#0d1117;border:1px solid rgba(255,255,255,0.14);color:#fff;padding:0 10px;font-family:\'Noto Sans\',sans-serif;font-size:12px;outline:none;">' +
+        '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
+          '<button id="ryu-badge-password-cancel" style="padding:8px 18px;background:transparent;border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.46);font-size:9px;font-weight:800;letter-spacing:2px;cursor:pointer;font-family:\'Noto Sans\',sans-serif;">CANCEL</button>' +
+          '<button id="ryu-badge-password-submit" style="padding:8px 18px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.18);color:rgba(255,255,255,0.92);font-size:9px;font-weight:800;letter-spacing:2px;cursor:pointer;font-family:\'Noto Sans\',sans-serif;">UNLOCK</button>' +
+        '</div>';
+
+      overlay.appendChild(box);
+      wrapper.appendChild(overlay);
+
+      var input = document.getElementById('ryu-badge-password-input');
+      var submit = document.getElementById('ryu-badge-password-submit');
+      var cancel = document.getElementById('ryu-badge-password-cancel');
+      function send() {
+        var pw = input ? input.value : '';
+        if (!pw) {
+          if (globalThis.__ryuShowToast) globalThis.__ryuShowToast('Enter the tester badge password.', 'error');
+          return;
+        }
+        if (globalThis.__ryuRequestBadgeEquip) {
+          globalThis.__ryuRequestBadgeEquip(item.id, pw);
+          overlay.remove();
+        } else if (globalThis.__ryuShowToast) {
+          globalThis.__ryuShowToast('Ryutheme relay is not connected yet.', 'error');
+        }
+      }
+      if (submit) submit.addEventListener('click', send);
+      if (cancel) cancel.addEventListener('click', function() { overlay.remove(); });
+      if (input) {
+        input.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') send();
+          if (e.key === 'Escape') overlay.remove();
+        });
+        setTimeout(function() { input.focus(); }, 0);
+      }
+    }
+
+    registerRyuBadgeTitles();
+
     // Read wallet balances from native DOM
     function getWalletRP() {
       var el = document.getElementById('shop-wallet-rp');
@@ -3450,16 +4445,31 @@
       var rp    = getWalletRP();
       var rc    = getWalletRC();
       var items = getShopItems();
-      var visibleItems = items.filter(function(it) {
-        return it.nativeEl.style.display !== 'none';
-      });
+      var visibleItems = _shopActiveTab === 'RYUTHEME'
+        ? RYU_BADGE_TITLES.map(function(item) {
+            var owned = !!(globalThis.__ryuHasBadgeEntitlement && globalThis.__ryuHasBadgeEntitlement(item.id));
+            var unlocked = !item.locked || owned;
+            return {
+              id: item.id,
+              url: ryuAssetUrl(item.file),
+              name: item.name,
+              price: '',
+              isFree: !!item.isFree,
+              owned: owned,
+              locked: !!item.locked && !unlocked,
+              ryuCustom: true
+            };
+          })
+        : items.filter(function(it) {
+            return it.nativeEl.style.display !== 'none';
+          });
 
       wrapper.innerHTML =
         '<div id="ryu-shop-header">' +
           '<div id="ryu-shop-header-left">' +
             '<div id="ryu-shop-title">SHOP</div>' +
             '<div id="ryu-shop-tabs">' +
-              ['SHIELD','TITLE','MISC'].map(function(cat) {
+              ['SHIELD','TITLE','MISC','RYUTHEME'].map(function(cat) {
                 return '<button class="ryu-shop-tab' + (cat === _shopActiveTab ? ' ryu-shop-tab-active' : '') + '" data-cat="' + cat + '">' + cat + '</button>';
               }).join('') +
             '</div>' +
@@ -3469,9 +4479,9 @@
             '<div class="ryu-shop-wallet ryu-shop-wallet-rc">' +
               '<span class="ryu-shop-wallet-icon">' +
                 '<svg width="13" height="9" viewBox="0 0 13 9" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                  '<rect x="0.5" y="0.5" width="12" height="8" rx="1" stroke="#22d3ee" stroke-width="0.8"/>' +
-                  '<rect x="2" y="2" width="9" height="5" rx="0.5" stroke="rgba(34,211,238,0.4)" stroke-width="0.6"/>' +
-                  '<circle cx="6.5" cy="4.5" r="1.2" stroke="#22d3ee" stroke-width="0.7"/>' +
+                  '<rect x="0.5" y="0.5" width="12" height="8" rx="1" stroke="rgba(255,255,255,0.92)" stroke-width="0.8"/>' +
+                  '<rect x="2" y="2" width="9" height="5" rx="0.5" stroke="rgba(255,255,255,0.38)" stroke-width="0.6"/>' +
+                  '<circle cx="6.5" cy="4.5" r="1.2" stroke="rgba(255,255,255,0.92)" stroke-width="0.7"/>' +
                 '</svg>' +
               '</span>' +
               rc + ' RC' +
@@ -3481,15 +4491,20 @@
         '</div>' +
         '<div id="ryu-shop-grid">' +
           visibleItems.map(function(item) {
-            var isEquipped = false; // native doesn't expose equipped state easily — skip for now
-            return '<div class="ryu-shop-card' + (isEquipped ? ' ryu-shop-card-equipped' : '') + '">' +
+            var isEquipped = item.ryuCustom && getActiveRyuBadgeId() === item.id;
+            return '<div class="ryu-shop-card' + (isEquipped ? ' ryu-shop-card-equipped' : '') + (item.locked ? ' ryu-shop-card-locked' : '') + '">' +
               '<div class="ryu-shop-card-preview"' + (item.url ? ' style="background-image:url(\'' + item.url + '\')"' : '') + '>' +
                 (isEquipped ? '<div class="ryu-shop-card-equipped-badge">EQUIPPED</div>' : '') +
+                (item.locked ? '<div class="ryu-shop-card-lock-badge">&#128274;</div>' : '') +
               '</div>' +
               '<div class="ryu-shop-card-info">' +
                 '<div class="ryu-shop-card-name">' + item.name + '</div>' +
                 '<div class="ryu-shop-card-price">' +
-                  (item.isFree
+                  (item.locked
+                    ? '<span class="ryu-shop-price-free">LOCKED</span>'
+                    : item.owned
+                    ? '<span class="ryu-shop-price-free">OWNED</span>'
+                    : item.isFree
                     ? '<span class="ryu-shop-price-free">FREE</span>'
                     : '<span class="ryu-shop-price-symbol">$</span><span class="ryu-shop-price-value">' + Number(item.price).toLocaleString() + '</span>'
                   ) +
@@ -3506,15 +4521,25 @@
       wireShopUI();
     }
 
+    globalThis.__ryuRefreshBadgeShop = function() {
+      if (_shopActiveTab !== 'RYUTHEME') return;
+      var el = document.getElementById(SHOP_INJECTED_ID);
+      if (!el) return;
+      el.remove();
+      buildShopUI();
+    };
+
     function wireShopUI() {
       // Tab switching
       wrapper.querySelectorAll('.ryu-shop-tab').forEach(function(tab) {
         tab.addEventListener('click', function() {
           _shopActiveTab = tab.getAttribute('data-cat');
           // Click native tab to filter items
-          document.querySelectorAll('.shop-nb-item').forEach(function(nTab) {
-            if (nTab.textContent.trim().toUpperCase() === _shopActiveTab) nTab.click();
-          });
+          if (_shopActiveTab !== 'RYUTHEME') {
+            document.querySelectorAll('.shop-nb-item').forEach(function(nTab) {
+              if (nTab.textContent.trim().toUpperCase() === _shopActiveTab) nTab.click();
+            });
+          }
           // Rebuild after native updates display
           setTimeout(function() {
             wrapper.remove();
@@ -3523,9 +4548,28 @@
         });
       });
 
-      // Item click — show confirmation then delegate to native buy button
+      // Item click Ã¢â‚¬â€ show confirmation then delegate to native buy button
       wrapper.querySelectorAll('.ryu-shop-card').forEach(function(card, idx) {
         card.addEventListener('click', function() {
+          if (_shopActiveTab === 'RYUTHEME') {
+            var ryuItem = RYU_BADGE_TITLES[idx];
+            if (!ryuItem) return;
+            var unlocked = !ryuItem.locked || (globalThis.__ryuHasBadgeEntitlement && globalThis.__ryuHasBadgeEntitlement(ryuItem.id));
+            if (ryuItem.locked && !unlocked) {
+              showTesterBadgePasswordPrompt(ryuItem);
+              return;
+            }
+            applyRyuBadgeTitle(ryuItem);
+            setTimeout(function() {
+              var el = document.getElementById(SHOP_INJECTED_ID);
+              if (el) {
+                el.remove();
+                buildShopUI();
+              }
+            }, 80);
+            return;
+          }
+
           var items = getShopItems();
           var visibleItems = items.filter(function(it) { return it.nativeEl.style.display !== 'none'; });
           var nativeItem = visibleItems[idx];
@@ -3540,7 +4584,7 @@
           overlay.style.cssText = 'position:absolute;inset:0;background:rgba(9,13,18,0.85);display:flex;align-items:center;justify-content:center;z-index:10;';
 
           var box = document.createElement('div');
-          box.style.cssText = 'background:#111820;border:1px solid rgba(34,211,238,0.25);padding:28px 36px;display:flex;flex-direction:column;align-items:center;gap:16px;min-width:280px;';
+          box.style.cssText = 'background:#111820;border:1px solid rgba(255,255,255,0.12);padding:28px 36px;display:flex;flex-direction:column;align-items:center;gap:16px;min-width:280px;';
 
           var itemName = nativeItem.name;
           var itemPrice = nativeItem.isFree ? 'FREE' : ('$ ' + Number(nativeItem.price).toLocaleString());
@@ -3550,7 +4594,7 @@
             '<div style="font-size:14px;font-weight:700;color:#fff;font-family:\'Noto Sans\',sans-serif;text-align:center;">' + itemName + '</div>' +
             '<div style="font-size:11px;font-weight:700;color:#f59e0b;font-family:\'Noto Sans\',sans-serif;letter-spacing:1px;">' + itemPrice + '</div>' +
             '<div style="display:flex;gap:10px;margin-top:4px;">' +
-              '<button id="ryu-shop-confirm-yes" style="padding:8px 28px;background:rgba(34,211,238,0.12);border:1px solid rgba(34,211,238,0.4);color:#22d3ee;font-size:9px;font-weight:800;letter-spacing:2px;cursor:pointer;font-family:\'Noto Sans\',sans-serif;">YES</button>' +
+              '<button id="ryu-shop-confirm-yes" style="padding:8px 28px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.18);color:rgba(255,255,255,0.92);font-size:9px;font-weight:800;letter-spacing:2px;cursor:pointer;font-family:\'Noto Sans\',sans-serif;">YES</button>' +
               '<button id="ryu-shop-confirm-no" style="padding:8px 28px;background:transparent;border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.4);font-size:9px;font-weight:800;letter-spacing:2px;cursor:pointer;font-family:\'Noto Sans\',sans-serif;">NO</button>' +
             '</div>';
 
@@ -3576,7 +4620,7 @@
         });
       }
 
-      // ESC key — fire our close immediately for instant animation, don't block game
+      // ESC key Ã¢â‚¬â€ fire our close immediately for instant animation, don't block game
       function onShopEsc(e) {
         if (e.key === 'Escape') {
           document.removeEventListener('keydown', onShopEsc, true);
@@ -3633,7 +4677,7 @@
         flex-direction: column;
         font-family: 'Noto Sans', sans-serif;
         background: #0d1117;
-        border: 1px solid rgba(34,211,238,0.2);
+        border: 1px solid rgba(255,255,255,0.14);
         box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 24px 80px rgba(0,0,0,0.9);
         overflow: hidden;
         flex-shrink: 0;
@@ -3658,7 +4702,7 @@
         padding: 0 28px;
         height: 52px;
         background: #111820;
-        border-bottom: 1px solid rgba(34,211,238,0.12);
+        border-bottom: 1px solid rgba(255,255,255,0.08);
         flex-shrink: 0;
       }
       #ryu-inv-header-left {
@@ -3686,8 +4730,8 @@
         text-transform: uppercase;
       }
       .ryu-inv-tab.ryu-inv-tab-active {
-        background: rgba(34,211,238,0.12);
-        color: #22d3ee;
+        background: rgba(255,255,255,0.08);
+        color: rgba(255,255,255,0.92);
       }
       .ryu-inv-tab:hover:not(.ryu-inv-tab-active) {
         color: rgba(255,255,255,0.6);
@@ -3699,8 +4743,8 @@
         gap: 16px;
       }
       #ryu-inv-count {
-        background: rgba(34,211,238,0.06);
-        border: 1px solid rgba(34,211,238,0.15);
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.12);
         padding: 5px 12px;
         font-size: 10px;
         font-weight: 700;
@@ -3721,8 +4765,8 @@
         transition: all 0.15s;
       }
       #ryu-inv-back-btn:hover {
-        border-color: rgba(34,211,238,0.3);
-        color: rgba(255,255,255,0.7);
+        border-color: rgba(255,255,255,0.18);
+        color: rgba(255,255,255,0.9);
       }
       #ryu-inv-grid {
         flex: 1;
@@ -3735,7 +4779,7 @@
       }
       #ryu-inv-grid::-webkit-scrollbar { width: 3px; }
       #ryu-inv-grid::-webkit-scrollbar-track { background: transparent; }
-      #ryu-inv-grid::-webkit-scrollbar-thumb { background: rgba(34,211,238,0.2); border-radius: 2px; }
+      #ryu-inv-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); border-radius: 2px; }
       .ryu-inv-card {
         background: #131a22;
         border: 1px solid rgba(255,255,255,0.05);
@@ -3746,11 +4790,11 @@
         transition: border-color 0.15s, box-shadow 0.15s;
       }
       .ryu-inv-card:hover {
-        border-color: rgba(34,211,238,0.3);
-        box-shadow: 0 0 12px rgba(34,211,238,0.06);
+        border-color: rgba(255,255,255,0.18);
+        box-shadow: 0 0 12px rgba(255,255,255,0.04);
       }
       .ryu-inv-card.ryu-inv-card-equipped {
-        border-color: rgba(34,211,238,0.45);
+        border-color: rgba(255,255,255,0.28);
       }
       .ryu-inv-card-preview {
         height: 180px;
@@ -3765,7 +4809,7 @@
         position: absolute;
         top: 6px;
         right: 6px;
-        background: #22d3ee;
+        background: rgba(255,255,255,0.85);
         color: #000;
         font-size: 8px;
         font-weight: 900;
@@ -3791,7 +4835,7 @@
       #ryu-inv-footer {
         height: 32px;
         background: #0a0d12;
-        border-top: 1px solid rgba(34,211,238,0.08);
+        border-top: 1px solid rgba(255,255,255,0.08);
         display: flex;
         align-items: center;
         padding: 0 28px;
@@ -3954,7 +4998,7 @@
       document.addEventListener('keydown', onInvEsc, true);
     }
 
-    // hide native rename box via CSS — we use our own modal
+    // hide native rename box via CSS Ã¢â‚¬â€ we use our own modal
     if (!document.getElementById('ryu-inv-rename-suppress')) {
       var suppressStyle = document.createElement('style');
       suppressStyle.id = 'ryu-inv-rename-suppress';
@@ -3972,12 +5016,12 @@
       overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);';
 
       overlay.innerHTML =
-        '<div style="background:#0d1117;border:1px solid rgba(34,211,238,0.25);border-radius:10px;padding:28px 28px 22px;width:340px;box-shadow:0 0 40px rgba(34,211,238,0.08);">' +
-          '<div style="font-size:10px;font-weight:700;letter-spacing:2.5px;color:rgba(34,211,238,0.6);text-transform:uppercase;margin-bottom:16px;font-family:inherit;">Enter New Username</div>' +
-          '<input id="ryu-rename-input" placeholder="username" autocomplete="off" style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.04);border:1px solid rgba(34,211,238,0.2);border-radius:6px;padding:10px 12px;color:#fff;font-size:14px;outline:none;margin-bottom:16px;">' +
+        '<div style="background:#0d1117;border:1px solid rgba(255,255,255,0.14);border-radius:10px;padding:28px 28px 22px;width:340px;box-shadow:0 0 40px rgba(0,0,0,0.24);">' +
+          '<div style="font-size:10px;font-weight:700;letter-spacing:2.5px;color:rgba(255,255,255,0.6);text-transform:uppercase;margin-bottom:16px;font-family:inherit;">Enter New Username</div>' +
+          '<input id="ryu-rename-input" placeholder="username" autocomplete="off" style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.14);border-radius:6px;padding:10px 12px;color:#fff;font-size:14px;outline:none;margin-bottom:16px;">' +
           '<div style="display:flex;gap:8px;">' +
             '<button id="ryu-rename-cancel" style="flex:1;padding:9px;background:transparent;border:1px solid rgba(255,255,255,0.08);border-radius:6px;color:rgba(255,255,255,0.4);font-size:12px;font-weight:600;cursor:pointer;letter-spacing:1px;">CANCEL</button>' +
-            '<button id="ryu-rename-confirm" style="flex:1;padding:9px;background:#22d3ee;border:none;border-radius:6px;color:#000;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:1px;">CONFIRM</button>' +
+            '<button id="ryu-rename-confirm" style="flex:1;padding:9px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.16);border-radius:6px;color:#fff;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:1px;">CONFIRM</button>' +
           '</div>' +
         '</div>';
 
@@ -4019,7 +5063,7 @@
       nativeInp.focus();
       nativeInp.value = value;
       nativeInp.dispatchEvent(new Event('input', { bubbles: true }));
-      // fire keydown Enter — this is what the game listens for
+      // fire keydown Enter Ã¢â‚¬â€ this is what the game listens for
       nativeInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
     }
 
@@ -4030,7 +5074,7 @@
           var item = visibleItems[idx];
           if (!item || !item.nativeEl) return;
 
-          // rename card — intercept and show our modal instead
+          // rename card Ã¢â‚¬â€ intercept and show our modal instead
           if (item.name.toLowerCase().includes('rename')) {
             item.nativeEl.click(); // opens native box (suppressed) to get native input into DOM
             setTimeout(function() {
@@ -4081,7 +5125,7 @@
     buildInvUI();
   }
 
-  // REPLAYS / GALLERY MENU — handled by replaysys.js
+  // REPLAYS / GALLERY MENU Ã¢â‚¬â€ handled by replaysys.js
   // these stubs delegate to globals exposed by replaysys.js
   function injectReplaysStyle() {
     if (globalThis.injectReplaysStyle) globalThis.injectReplaysStyle();
@@ -4100,64 +5144,113 @@
     s.textContent = [
       '#ryu-settings-panel{position:fixed;inset:0;z-index:99990;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.18s ease;}',
       '#ryu-settings-panel.ryu-sp-open{opacity:1;pointer-events:all;}',
-      '#ryu-sp-box{width:1100px;max-width:97vw;height:780px;max-height:94vh;background:rgba(13,17,23,0.92);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:1px solid rgba(34,211,238,0.18);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;opacity:0;transform:scale(0.96) translateY(10px);transition:opacity 160ms cubic-bezier(0.16,1,0.3,1),transform 160ms cubic-bezier(0.16,1,0.3,1);}',
+      '#ryu-sp-box{width:1100px;max-width:97vw;height:780px;max-height:94vh;background:rgba(13,17,23,0.92);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,0.12);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;opacity:0;transform:scale(0.96) translateY(10px);transition:opacity 160ms cubic-bezier(0.16,1,0.3,1),transform 160ms cubic-bezier(0.16,1,0.3,1);}',
       '#ryu-settings-panel.ryu-sp-open #ryu-sp-box{opacity:1;transform:scale(1) translateY(0);}',
       '#ryu-settings-panel.ryu-sp-closing #ryu-sp-box{opacity:0;transform:scale(0.97) translateY(6px);transition:opacity 200ms ease-in,transform 200ms ease-in;}',
       '#ryu-settings-panel.ryu-sp-theme-mode{align-items:stretch;justify-content:flex-start;}',
-      '#ryu-settings-panel.ryu-sp-theme-mode #ryu-sp-box{width:960px;max-width:68vw;height:100vh;max-height:100vh;border-radius:0;border:none;border-right:1px solid rgba(34,211,238,0.2);transform:translateX(-20px);}',
+      '#ryu-settings-panel.ryu-sp-theme-mode #ryu-sp-box{width:960px;max-width:68vw;height:100vh;max-height:100vh;border-radius:0;border:none;border-right:1px solid rgba(255,255,255,0.08);transform:translateX(-20px);}',
       '#ryu-settings-panel.ryu-sp-theme-mode.ryu-sp-open #ryu-sp-box{transform:translateX(0);}',
-      '#ryu-sp-topbar{background:#0d1117;border-bottom:1px solid rgba(34,211,238,0.12);display:flex;align-items:center;height:56px;flex-shrink:0;padding:0 0 0 0;overflow:hidden;}',
+      '#ryu-sp-topbar{background:#0d1117;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;height:56px;flex-shrink:0;padding:0 0 0 0;overflow:hidden;}',
       '#ryu-sp-topbar-tabs{display:flex;align-items:center;flex:1;min-width:0;overflow:hidden;}',
       '#ryu-sp-topbar-right{display:flex;align-items:center;flex-shrink:0;gap:4px;padding-right:8px;}',
-      '#ryu-sp-logo{font-family:"Noto Sans",sans-serif;font-size:12px;font-weight:800;letter-spacing:4px;color:rgba(34,211,238,0.5);padding:0 14px;flex-shrink:0;}',
+      '#ryu-sp-logo{font-family:"Noto Sans",sans-serif;font-size:12px;font-weight:800;letter-spacing:4px;color:rgba(255,255,255,0.5);padding:0 14px;flex-shrink:0;}',
       '.ryu-sp-tab{height:100%;padding:0 14px;font-family:"Noto Sans",sans-serif;font-size:12px;font-weight:700;letter-spacing:1.5px;color:rgba(255,255,255,0.3);border:none;border-bottom:2px solid transparent;background:transparent;cursor:pointer;outline:none;transition:all 0.12s;white-space:nowrap;flex-shrink:0;}',
       '.ryu-sp-tab:hover{color:rgba(255,255,255,0.65);}',
-      '.ryu-sp-tab.ryu-sp-tab-active{color:#22d3ee;border-bottom-color:#22d3ee;}',
+      '.ryu-sp-tab.ryu-sp-tab-active{color:rgba(255,255,255,0.92);border-bottom-color:rgba(255,255,255,0.35);}',
       '#ryu-sp-preview-btn{display:none;flex-shrink:0;}',
       '#ryu-settings-panel.ryu-sp-theme-mode #ryu-sp-preview-btn{display:flex;}',
-      '#ryu-sp-close{flex-shrink:0;width:34px;height:34px;background:transparent;border:1px solid rgba(34,211,238,0.2);border-radius:6px;color:rgba(34,211,238,0.5);font-size:16px;cursor:pointer;outline:none;display:flex;align-items:center;justify-content:center;transition:all 0.12s;margin-left:6px;margin-right:8px;}',
-      '#ryu-sp-close:hover{border-color:rgba(34,211,238,0.6);color:#22d3ee;}',
+      '#ryu-sp-close{flex-shrink:0;width:34px;height:34px;background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:rgba(255,255,255,0.5);font-size:16px;cursor:pointer;outline:none;display:flex;align-items:center;justify-content:center;transition:all 0.12s;margin-left:6px;margin-right:8px;}',
+      '#ryu-sp-close:hover{border-color:rgba(255,255,255,0.2);color:rgba(255,255,255,0.96);}',
       '#ryu-sp-body{display:flex;flex:1;overflow:hidden;}',
       '#ryu-sp-sidebar{width:200px;flex-shrink:0;background:#090d12;border-right:1px solid rgba(255,255,255,0.05);overflow-y:auto;padding:12px 0;}',
       '#ryu-sp-sidebar::-webkit-scrollbar{width:3px;}',
-      '#ryu-sp-sidebar::-webkit-scrollbar-thumb{background:rgba(34,211,238,0.15);border-radius:2px;}',
-      '.ryu-sp-sec-group-title{font-family:"Noto Sans",sans-serif;font-size:11px;font-weight:800;letter-spacing:3px;color:rgba(34,211,238,0.5);padding:14px 16px 8px;text-transform:uppercase;}',
+      '#ryu-sp-sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.12);border-radius:2px;}',
+      '.ryu-sp-sec-group-title{font-family:"Noto Sans",sans-serif;font-size:12px;font-weight:900;letter-spacing:3px;color:rgba(255,255,255,0.82);padding:14px 16px 8px;text-transform:uppercase;}',
+      '#ryu-sp-search-wrap{padding:10px 12px 14px;border-top:1px solid rgba(255,255,255,0.04);margin-top:6px;}',
+      '#ryu-sp-search{width:156px;max-width:100%;box-sizing:border-box;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:rgba(255,255,255,0.78);font-family:"Noto Sans",sans-serif;font-size:11px;font-weight:600;padding:7px 9px;outline:none;}',
+      '#ryu-sp-search:focus{border-color:rgba(255,255,255,0.18);background:rgba(255,255,255,0.06);}',
+      '#ryu-sp-search::placeholder{color:rgba(255,255,255,0.24);}',
+      '#ryu-sp-search-results{display:none;margin-top:6px;max-height:158px;overflow-y:auto;background:#0d1117;border:1px solid rgba(255,255,255,0.1);border-radius:5px;box-shadow:0 8px 18px rgba(0,0,0,0.35);}',
+      '#ryu-sp-search-results::-webkit-scrollbar{width:4px;}',
+      '#ryu-sp-search-results::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.16);border-radius:3px;}',
+      '.ryu-sp-search-hit{padding:8px 10px;color:rgba(255,255,255,0.86);font-family:"Noto Sans",sans-serif;font-size:11px;font-weight:700;cursor:pointer;}',
+      '.ryu-sp-search-hit:hover{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.96);}',
       '.ryu-sp-sec-item{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;font-family:"Noto Sans",sans-serif;font-size:14px;font-weight:600;letter-spacing:0.5px;color:rgba(255,255,255,0.45);border-left:2px solid transparent;cursor:pointer;transition:all 0.12s;}',
       '.ryu-sp-sec-item:hover{color:rgba(255,255,255,0.65);background:rgba(255,255,255,0.03);}',
-      '.ryu-sp-sec-item.ryu-sp-sec-active{color:#22d3ee;border-left-color:#22d3ee;background:rgba(34,211,238,0.05);}',
+      '.ryu-sp-sec-item.ryu-sp-sec-active{color:rgba(255,255,255,0.96);border-left-color:rgba(255,255,255,0.35);background:rgba(255,255,255,0.05);}',
       '.ryu-sp-sec-arrow{font-size:9px;opacity:0.4;}',
       '#ryu-sp-content{flex:1;overflow-y:auto;padding:22px 28px;display:flex;flex-direction:column;gap:0;}',
       '#ryu-sp-content::-webkit-scrollbar{width:4px;}',
-      '#ryu-sp-content::-webkit-scrollbar-thumb{background:rgba(34,211,238,0.15);border-radius:2px;}',
-      '.ryu-sp-section-hdr{font-family:"Noto Sans",sans-serif;font-size:11px;font-weight:800;letter-spacing:3px;color:rgba(34,211,238,0.6);padding:18px 0 9px;margin-top:6px;border-bottom:1px solid rgba(34,211,238,0.1);margin-bottom:2px;}',
+      '#ryu-sp-content::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.12);border-radius:2px;}',
+      '.ryu-sp-section-hdr{font-family:"Noto Sans",sans-serif;font-size:13px;font-weight:900;letter-spacing:3px;color:rgba(255,255,255,0.88);padding:18px 0 9px;margin-top:6px;border-bottom:1px solid rgba(255,255,255,0.12);margin-bottom:2px;text-transform:uppercase;}',
       '.ryu-sp-section-hdr:first-child{padding-top:0;margin-top:0;}',
-      '.ryu-sp-row{display:flex;align-items:center;padding:12px 0;gap:16px;min-height:48px;border-bottom:1px solid rgba(255,255,255,0.04);}',
-      '.ryu-sp-label{flex:1;font-family:"Noto Sans",sans-serif;font-size:13px;font-weight:600;letter-spacing:0.5px;color:rgba(255,255,255,0.6);}',
+      '.ryu-sp-row{display:flex;align-items:center;padding:12px 12px;gap:16px;min-height:48px;border-bottom:1px solid rgba(255,255,255,0.085);position:relative;background:rgba(255,255,255,0);transition:background 0.18s,border-color 0.18s,box-shadow 0.18s;}',
+      '.ryu-sp-row::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,rgba(255,255,255,0.03),rgba(255,255,255,0.10),rgba(255,255,255,0.03));opacity:0.9;pointer-events:none;}',
+      '.ryu-sp-row:hover{background:rgba(255,255,255,0.07);border-bottom-color:rgba(255,255,255,0.26);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.22), inset 3px 0 0 rgba(255,255,255,0.88);}',
+      '.ryu-sp-row:hover::before{background:linear-gradient(90deg,rgba(255,255,255,0.22),rgba(255,255,255,0.55),rgba(255,255,255,0.22));}',
+      '.ryu-sp-row:hover .ryu-sp-label{color:rgba(255,255,255,0.94);}',
+      '.ryu-sp-row.ryu-sp-highlight,.ryu-sp-row.ryu-sp-dropdown-open,.ryu-sp-row:focus-within{background:rgba(255,255,255,0.07);border-bottom-color:rgba(255,255,255,0.26);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.22), inset 3px 0 0 rgba(255,255,255,0.88);}',
+      '.ryu-sp-row.ryu-sp-highlight::before,.ryu-sp-row.ryu-sp-dropdown-open::before,.ryu-sp-row:focus-within::before{background:linear-gradient(90deg,rgba(255,255,255,0.22),rgba(255,255,255,0.55),rgba(255,255,255,0.22));}',
+      '.ryu-sp-label{flex:1;font-family:"Noto Sans",sans-serif;font-size:13px;font-weight:600;letter-spacing:0.5px;color:rgba(255,255,255,0.66);transition:color 0.18s;}',
+      '.ryu-sp-row.ryu-sp-highlight .ryu-sp-label,.ryu-sp-row.ryu-sp-dropdown-open .ryu-sp-label,.ryu-sp-row:focus-within .ryu-sp-label{color:rgba(255,255,255,0.94);}',
+      '.ryu-sp-linked-group-active.ryu-sp-row{background:rgba(255,255,255,0.08);border-bottom-color:rgba(255,255,255,0.28);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.24), inset 3px 0 0 rgba(255,255,255,0.96);}',
+      '.ryu-sp-linked-group-active.ryu-sp-row::before{background:linear-gradient(90deg,rgba(255,255,255,0.24),rgba(255,255,255,0.62),rgba(255,255,255,0.24));}',
+      '.ryu-sp-linked-group-active.ryu-sp-row .ryu-sp-label{color:rgba(255,255,255,0.98);}',
+      '.ryu-sp-linked-group-active.ryu-sp-subgroup{border-left-color:rgba(255,255,255,0.28)!important;background:linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02));box-shadow:inset 0 0 0 1px rgba(255,255,255,0.08);}',
+      '.ryu-sp-linked-group-active.ryu-sp-subgroup .ryu-sp-row{background:rgba(255,255,255,0.042);border-bottom-color:rgba(255,255,255,0.16);}',
+      '.ryu-sp-linked-group-active.ryu-sp-subgroup .ryu-sp-row .ryu-sp-label{color:rgba(255,255,255,0.9);}',
+      '.ryu-sp-row.ryu-sp-disabled{opacity:0.38;background:rgba(255,255,255,0.015);}',
+      '.ryu-sp-row.ryu-sp-disabled::before{background:linear-gradient(90deg,rgba(255,255,255,0.02),rgba(255,255,255,0.05),rgba(255,255,255,0.02));}',
+      '.ryu-sp-row.ryu-sp-disabled .ryu-sp-label{color:rgba(255,255,255,0.34);}',
+      '.ryu-sp-row.ryu-sp-disabled .ryu-sp-ctrl{pointer-events:none;}',
       '.ryu-sp-ctrl{display:flex;align-items:center;gap:8px;flex-shrink:0;}',
       '.ryu-sp-swatch{width:38px;height:26px;border-radius:5px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;flex-shrink:0;position:relative;}',
-      '.ryu-sp-track{width:140px;height:4px;background:rgba(34,211,238,0.15);border-radius:2px;position:relative;cursor:pointer;flex-shrink:0;user-select:none;-webkit-user-select:none;}',
-      '.ryu-sp-fill{height:100%;background:#22d3ee;border-radius:2px;position:relative;}',
-      '.ryu-sp-thumb{width:14px;height:14px;background:#22d3ee;border-radius:50%;position:absolute;right:-7px;top:-5px;box-shadow:0 0 0 3px rgba(34,211,238,0.2);pointer-events:none;}',
-      '.ryu-sp-val{font-family:"Noto Sans",sans-serif;font-size:12px;font-weight:700;color:#22d3ee;min-width:30px;text-align:right;}',
+      '.ryu-sp-track{width:140px;height:18px;background:transparent;border-radius:9px;position:relative;cursor:pointer;flex-shrink:0;user-select:none;-webkit-user-select:none;touch-action:none;}',
+      '.ryu-sp-track::before{content:"";position:absolute;left:0;right:0;top:7px;height:4px;background:rgba(255,255,255,0.12);border-radius:2px;}',
+      '.ryu-sp-fill{height:4px;background:rgba(255,255,255,0.82);border-radius:2px;position:absolute;left:0;top:7px;}',
+      '.ryu-sp-thumb{width:14px;height:14px;background:rgba(255,255,255,0.92);border-radius:50%;position:absolute;right:-7px;top:-5px;box-shadow:0 0 0 3px rgba(255,255,255,0.12);pointer-events:none;}',
+      '.ryu-sp-val{font-family:"Noto Sans",sans-serif;font-size:12px;font-weight:700;color:rgba(255,255,255,0.78);min-width:30px;text-align:right;}',
       '.ryu-sp-multi{display:flex;}',
-      '.ryu-sp-mi{font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;letter-spacing:1px;padding:6px 14px;border:1px solid rgba(34,211,238,0.2);color:rgba(255,255,255,0.3);cursor:pointer;transition:all 0.1s;background:transparent;outline:none;}',
+      '.ryu-sp-mi{font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;letter-spacing:1px;padding:6px 14px;border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.3);cursor:pointer;transition:all 0.1s;background:transparent;outline:none;}',
       '.ryu-sp-mi:first-child{border-radius:5px 0 0 5px;}',
       '.ryu-sp-mi:last-child{border-radius:0 5px 5px 0;}',
       '.ryu-sp-mi:not(:first-child){border-left:none;}',
-      '.ryu-sp-mi.ryu-sp-mi-active{background:rgba(34,211,238,0.15);color:#22d3ee;border-color:rgba(34,211,238,0.5);}',
+      '.ryu-sp-mi.ryu-sp-mi-active{background:rgba(255,255,255,0.10);color:rgba(255,255,255,0.96);border-color:rgba(255,255,255,0.18);}',
       '.ryu-sp-toggle{width:42px;height:24px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:12px;position:relative;cursor:pointer;flex-shrink:0;transition:all 0.15s;}',
-      '.ryu-sp-toggle.ryu-sp-toggle-on{background:rgba(34,211,238,0.2);border-color:rgba(34,211,238,0.5);}',
+      '.ryu-sp-toggle.ryu-sp-toggle-on{background:rgba(255,255,255,0.10);border-color:rgba(255,255,255,0.18);}',
       '.ryu-sp-toggle-dot{width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,0.25);position:absolute;top:3px;left:3px;transition:left 0.15s,background 0.15s;}',
-      '.ryu-sp-toggle.ryu-sp-toggle-on .ryu-sp-toggle-dot{left:21px;background:#22d3ee;}',
-      '.ryu-sp-input{background:rgba(255,255,255,0.04);border:1px solid rgba(34,211,238,0.2);border-radius:6px;color:rgba(255,255,255,0.7);font-family:"Noto Sans",sans-serif;font-size:12px;padding:6px 12px;width:200px;outline:none;transition:border-color 0.15s;}',
-      '.ryu-sp-input:focus{border-color:rgba(34,211,238,0.5);}',
-      '.ryu-sp-input::placeholder{color:rgba(255,255,255,0.2);}',
-      '.pcr-button{display:none !important;width:0 !important;height:0 !important;overflow:hidden !important;position:absolute !important;pointer-events:none !important;}'
+      '.ryu-sp-toggle.ryu-sp-toggle-on .ryu-sp-toggle-dot{left:21px;background:rgba(255,255,255,0.92);}',
+      '.ryu-sp-input{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:rgba(255,255,255,0.7);font-family:"Noto Sans",sans-serif;font-size:12px;padding:6px 12px;width:200px;outline:none;transition:border-color 0.15s;}',
+      '.ryu-sp-input:focus{border-color:rgba(255,255,255,0.18);}',
+      '.ryu-sp-input::placeholder{color:rgba(255,255,255,0.2);}'
     ].join('');
     (document.head || document.documentElement).appendChild(s);
   }
 
-  var RYU_SP_TABS = ['GAMEPLAY','GRAPHICS','THEME','CONTROLS','CHAT','HUDS','RYUTHEME'];
+  function closeOpenSettingsDropdownRows(exceptRow) {
+    document.querySelectorAll('.ryu-sp-row.ryu-sp-dropdown-open').forEach(function(row) {
+      if (row !== exceptRow) row.classList.remove('ryu-sp-dropdown-open');
+    });
+  }
+
+  function setSettingsDropdownRowState(row, open) {
+    if (!row) return;
+    if (open) {
+      closeOpenSettingsDropdownRows(row);
+      row.classList.add('ryu-sp-dropdown-open');
+    } else {
+      row.classList.remove('ryu-sp-dropdown-open');
+    }
+  }
+
+  function setSettingsLinkedGroupState(groupName, open) {
+    if (!groupName) return;
+    document.querySelectorAll('[data-ryu-linked-group="' + groupName + '"]').forEach(function(el) {
+      el.classList.toggle('ryu-sp-linked-group-active', !!open);
+    });
+  }
+
+  var RYU_SP_TABS = ['GAMEPLAY','GRAPHICS','THEME','CONTROLS','CHAT','HUDS','VOICE','RYUTHEME'];
   var RYU_SP_TAB_ROWS = { 'GAMEPLAY':[0,20],'GRAPHICS':[21,25],'THEME':[26,50],'CONTROLS':[51,87],'CHAT':[88,97],'HUDS':[98,103] };
   var RYU_SP_SECTIONS = {
     'GAMEPLAY':  ['MOVEMENT','DISPLAY','CAMERA','REPLAY','ANIMATION','MISC'],
@@ -4166,11 +5259,24 @@
     'CONTROLS':  ['PLAYER','CAMERA ZOOM'],
     'CHAT':      ['QUICK CHAT'],
     'HUDS':      ['OVERLAYS'],
+    'VOICE':     ['PROXIMITY CHAT'],
     'RYUTHEME':  ['COMMANDER','CURSOR','BORDER','GAMEPLAY TWEAKS','GAME COSMETICS','HOTKEYS','THEMES']
   };
   var RYU_SP_NATIVE_TAB = { 'GAMEPLAY':0,'GRAPHICS':1,'THEME':2,'CONTROLS':3,'CHAT':4,'HUDS':5 };
+  var RYU_SP_SEARCH = [
+    ['COMMANDER','Ping Text'],
+    ['CURSOR','Cursor Style'],
+    ['BORDER','Rainbow Border'], ['BORDER','Border Speed'], ['BORDER','Rainbow Glow'], ['BORDER','Glow Speed'],
+    ['GAMEPLAY TWEAKS','Custom Animation Delay'], ['GAMEPLAY TWEAKS','Split Counter'], ['GAMEPLAY TWEAKS','RyuTheme Kill Feed'], ['GAMEPLAY TWEAKS','Kill Feed Avatar'], ['GAMEPLAY TWEAKS','World Sectors'], ['GAMEPLAY TWEAKS','Emotes'], ['GAMEPLAY TWEAKS','Team Cell Colors'], ['GAMEPLAY TWEAKS','Danger Indicators'],
+    ['GAME COSMETICS','Name Color'], ['GAME COSMETICS','Name Font'], ['GAME COSMETICS','Name Settings'], ['GAME COSMETICS','Name Stroke'], ['GAME COSMETICS','Name Stroke Color'], ['GAME COSMETICS','Name Stroke Thickness'], ['GAME COSMETICS','Hide Flags'], ['GAME COSMETICS','LeftWard Tags'], ['GAME COSMETICS','Name Scale'], ['GAME COSMETICS','Name Size'], ['GAME COSMETICS','Cell Avatar'], ['GAME COSMETICS','Mass Color'], ['GAME COSMETICS','Mass Font'], ['GAME COSMETICS','Mass Scale'], ['GAME COSMETICS','Mass Size'], ['GAME COSMETICS','Mass Settings'], ['GAME COSMETICS','Mass Stroke'], ['GAME COSMETICS','Mass Stroke Color'], ['GAME COSMETICS','Mass Stroke Thickness'], ['GAME COSMETICS','Short Mass'], ['GAME COSMETICS','Short Mass Settings'], ['GAME COSMETICS','Agar.io Mode'], ['GAME COSMETICS','Agar.io Virus'], ['GAME COSMETICS','Agar.io Map'], ['GAME COSMETICS','Agar.io Dark'], ['GAME COSMETICS','Agar.io Chatbox'], ['GAME COSMETICS','Agar.io Leaderboard'], ['GAME COSMETICS','Agar.io Minimap'], ['GAME COSMETICS','Chatbox Theme'], ['GAME COSMETICS','Chatbox Style'], ['GAME COSMETICS','Leaderboard Theme'], ['GAME COSMETICS','Leaderboard Styles'], ['GAME COSMETICS','Minimap Theme'], ['GAME COSMETICS','Minimap Style'], ['GAME COSMETICS','Chat Name Color'], ['GAME COSMETICS','Custom Color'], ['GAME COSMETICS','Pellet Color'], ['GAME COSMETICS','Rainbow Pellets'], ['GAME COSMETICS','Pellet Skins'], ['GAME COSMETICS','Rainbow Map Dots'], ['GAME COSMETICS','Minimal Mode'],
+    ['VOICE','Proximity Chat'], ['VOICE','Request Mic Access'], ['VOICE','Refresh Devices'], ['VOICE','Input Device'], ['VOICE','Output Device'], ['VOICE','Voice Volume'], ['VOICE','Clear Radius'], ['VOICE','Fade Radius'],
+    ['HOTKEYS','Celebrate'],
+    ['HOTKEYS','Disconnect'], ['HOTKEYS','Emote Panel'], ['HOTKEYS','Danger Overlay'], ['HOTKEYS','Minimal Mode'],
+    ['THEMES','Load Theme']
+  ];
   var _spCurrentTab = 'GAMEPLAY';
   var _spCurrentSec = null;
+  var _spPendingHighlight = null;
 
   function openRyuSettings(tabName) {
     injectSettingsPanelStyle();
@@ -4191,7 +5297,7 @@
       panel.classList.add('ryu-sp-theme-mode');
     }
 
-    // Watch #settings-menu — only start watching AFTER it is fully open (opacity:1)
+    // Watch #settings-menu Ã¢â‚¬â€ only start watching AFTER it is fully open (opacity:1)
     // Then close our panel instantly when it starts closing (opacity goes to 0)
     var _smLayer = document.getElementById('settings-menu');
     if (_smLayer) {
@@ -4240,7 +5346,7 @@
     var tabsHTML = RYU_SP_TABS.map(function(t) {
       return '<button class="ryu-sp-tab' + (t === _spCurrentTab ? ' ryu-sp-tab-active' : '') + '" data-tab="' + t + '">' + t + '</button>';
     }).join('');
-    return '<div id="ryu-sp-box"><div id="ryu-sp-topbar"><span id="ryu-sp-logo">RYUTEN</span><div id="ryu-sp-topbar-tabs">' + tabsHTML + '</div><div id="ryu-sp-topbar-right"><button id="ryu-sp-preview-btn" title="Toggle transparency" style="flex-shrink:0;height:26px;padding:0 10px;background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.2);border-radius:5px;color:rgba(34,211,238,0.6);font-family:\'Noto Sans\',sans-serif;font-size:8px;font-weight:700;letter-spacing:1px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:4px;">👁 PREVIEW</button><button id="ryu-sp-close">&#x2715;</button></div></div><div id="ryu-sp-body"><div id="ryu-sp-sidebar"></div><div id="ryu-sp-content"></div></div></div>';
+    return '<div id="ryu-sp-box"><div id="ryu-sp-topbar"><span id="ryu-sp-logo">RYUTEN</span><div id="ryu-sp-topbar-tabs">' + tabsHTML + '</div><div id="ryu-sp-topbar-right"><button id="ryu-sp-preview-btn" title="Toggle transparency" style="flex-shrink:0;height:26px;padding:0 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:rgba(255,255,255,0.6);font-family:\'Noto Sans\',sans-serif;font-size:8px;font-weight:700;letter-spacing:1px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:4px;">👁 PREVIEW</button><button id="ryu-sp-close">&#x2715;</button></div></div><div id="ryu-sp-body"><div id="ryu-sp-sidebar"></div><div id="ryu-sp-content"></div></div></div>';
   }
 
   function wireSettingsPanel(panel) {
@@ -4250,7 +5356,7 @@
       closeRyuSettings();
     });
 
-    // Preview toggle — makes panel semi-transparent to see game behind it
+    // Preview toggle Ã¢â‚¬â€ makes panel semi-transparent to see game behind it
     var previewBtn = panel.querySelector('#ryu-sp-preview-btn');
     var _previewOn = false;
     var spBox = panel.querySelector('#ryu-sp-box');
@@ -4262,9 +5368,9 @@
       spBox.style.backdropFilter = _previewOn ? 'blur(0px)' : 'blur(4px)';
       spBox.style.webkitBackdropFilter = _previewOn ? 'blur(0px)' : 'blur(4px)';
       previewBtn.style.background = _previewOn
-        ? 'rgba(34,211,238,0.2)'
-        : 'rgba(34,211,238,0.08)';
-      previewBtn.style.color = _previewOn ? '#22d3ee' : 'rgba(34,211,238,0.6)';
+        ? 'rgba(255,255,255,0.10)'
+        : 'rgba(255,255,255,0.06)';
+      previewBtn.style.color = _previewOn ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.6)';
     });
     panel.querySelectorAll('.ryu-sp-tab').forEach(function(btn) {
       btn.addEventListener('click', function() {
@@ -4272,7 +5378,7 @@
         _spCurrentSec = null;
         panel.querySelectorAll('.ryu-sp-tab').forEach(function(b) { b.classList.remove('ryu-sp-tab-active'); });
         btn.classList.add('ryu-sp-tab-active');
-        // Theme mode — left-anchored panel showing live game on right
+        // Theme mode Ã¢â‚¬â€ left-anchored panel showing live game on right
         if (_spCurrentTab === 'THEME' || _spCurrentTab === 'RYUTHEME') {
           panel.classList.add('ryu-sp-theme-mode');
         } else {
@@ -4302,7 +5408,10 @@
     sidebar.innerHTML = '<div class="ryu-sp-sec-group-title">SECTIONS</div>' +
       sections.map(function(sec) {
         return '<div class="ryu-sp-sec-item' + (sec === _spCurrentSec ? ' ryu-sp-sec-active' : '') + '" data-sec="' + sec + '">' + sec + '<span class="ryu-sp-sec-arrow">&#x203A;</span></div>';
-      }).join('');
+      }).join('') +
+      (_spCurrentTab === 'RYUTHEME'
+        ? '<div id="ryu-sp-search-wrap"><input id="ryu-sp-search" placeholder="Search settings..."><div id="ryu-sp-search-results"></div></div>'
+        : '');
     sidebar.querySelectorAll('.ryu-sp-sec-item').forEach(function(item) {
       item.addEventListener('click', function() {
         _spCurrentSec = item.dataset.sec;
@@ -4311,13 +5420,53 @@
         renderSpRows(panel);
       });
     });
+    var search = sidebar.querySelector('#ryu-sp-search');
+    if (search) {
+      var results = sidebar.querySelector('#ryu-sp-search-results');
+      function goToSearchHit(hit) {
+        if (!hit) return;
+        _spCurrentSec = hit[0];
+        _spPendingHighlight = hit[1];
+        renderSpContent(panel);
+      }
+      function renderSearchResults() {
+        var q = search.value.trim().toLowerCase();
+        var hits = (q ? RYU_SP_SEARCH.filter(function(item) {
+          return item[1].toLowerCase().indexOf(q) !== -1;
+        }) : RYU_SP_SEARCH.slice()).sort(function(a, b) {
+          return a[1].localeCompare(b[1], undefined, { sensitivity: 'base' });
+        });
+        results.innerHTML = hits.map(function(item, idx) {
+          return '<div class="ryu-sp-search-hit" data-idx="' + idx + '">' + item[1] + '</div>';
+        }).join('');
+        results._ryuHits = hits;
+        results.style.display = hits.length ? 'block' : 'none';
+      }
+      search.addEventListener('input', renderSearchResults);
+      search.addEventListener('focus', renderSearchResults);
+      search.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter') return;
+        var q = search.value.trim().toLowerCase();
+        if (!q) return;
+        var hit = RYU_SP_SEARCH.find(function(item) {
+          return item[1].toLowerCase() === q || item[1].toLowerCase().indexOf(q) !== -1;
+        });
+        goToSearchHit(hit);
+      });
+      results.addEventListener('mousedown', function(e) {
+        var hitEl = e.target.closest('.ryu-sp-search-hit');
+        if (!hitEl || !results._ryuHits) return;
+        e.preventDefault();
+        goToSearchHit(results._ryuHits[parseInt(hitEl.dataset.idx, 10)]);
+      });
+    }
     renderSpRows(panel);
   }
 
   function renderSpRows(panel) {
     var content = panel.querySelector('#ryu-sp-content');
     content.innerHTML = '';
-    if (_spCurrentTab === 'RYUTHEME') { renderRyuThemeSection(content, _spCurrentSec); return; }
+    if (_spCurrentTab === 'RYUTHEME' || _spCurrentTab === 'VOICE') { renderRyuThemeSection(content, _spCurrentSec); return; }
     var range = RYU_SP_TAB_ROWS[_spCurrentTab];
     if (!range) return;
     var allRows = document.querySelectorAll('.sm-row');
@@ -4325,28 +5474,50 @@
     hdr.className = 'ryu-sp-section-hdr';
     hdr.textContent = _spCurrentSec || _spCurrentTab;
     content.appendChild(hdr);
-    for (var i = range[0]; i <= range[1]; i++) {
-      var nr = allRows[i];
-      if (!nr) continue;
+    var rowsToRender = [];
+    if (_spCurrentTab === 'THEME') {
+      allRows.forEach(function(nr) { rowsToRender.push(nr); });
+    } else {
+      for (var i = range[0]; i <= range[1]; i++) {
+        if (allRows[i]) rowsToRender.push(allRows[i]);
+      }
+    }
+
+    var renderedCount = 0;
+    rowsToRender.forEach(function(nr) {
+      if (!nr) return;
       var ne = nr.querySelector('.sm-setting-name');
-      if (!ne) continue;
+      if (!ne) return;
       var label = ne.textContent.trim();
       // Only show rows that belong to current section AND are currently visible in native DOM
-      if (!rowBelongsToSection(label, _spCurrentSec, _spCurrentTab)) continue;
-      if (window.getComputedStyle(nr).display === 'none') continue;
+      if (!rowBelongsToSection(label, _spCurrentSec, _spCurrentTab)) return;
+      if (window.getComputedStyle(nr).display === 'none') return;
       var rowEl = buildNativeRow(nr, label);
-      if (rowEl) content.appendChild(rowEl);
+      if (rowEl) {
+        renderedCount++;
+        content.appendChild(rowEl);
+      }
+    });
+
+    if (_spCurrentTab === 'THEME' && renderedCount === 0 && !panel._ryuThemeRetrying) {
+      panel._ryuThemeRetrying = true;
+      setTimeout(function() {
+        panel._ryuThemeRetrying = false;
+        if (document.getElementById(RYU_SP_ID) === panel && _spCurrentTab === 'THEME') {
+          renderSpRows(panel);
+        }
+      }, 180);
     }
-    // ── Bottom action row — Reset + Import/Export ──────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Bottom action row Ã¢â‚¬â€ Reset + Import/Export Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     if (_spCurrentTab === 'THEME') {
       var bottomRow = document.createElement('div');
       bottomRow.style.cssText = 'display:flex;gap:8px;margin-top:20px;';
 
-      var btnStyle = 'flex:1;height:30px;background:transparent;border:1px solid rgba(34,211,238,0.2);border-radius:6px;color:rgba(34,211,238,0.6);font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;cursor:pointer;transition:all 0.15s;white-space:nowrap;';
-      var btnHoverOn  = function(b) { b.style.background = 'rgba(34,211,238,0.07)'; b.style.borderColor = 'rgba(34,211,238,0.5)'; b.style.color = '#22d3ee'; };
-      var btnHoverOff = function(b) { b.style.background = 'transparent'; b.style.borderColor = 'rgba(34,211,238,0.2)'; b.style.color = 'rgba(34,211,238,0.6)'; };
+      var btnStyle = 'flex:1;height:30px;background:transparent;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:rgba(255,255,255,0.6);font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;cursor:pointer;transition:all 0.15s;white-space:nowrap;';
+      var btnHoverOn  = function(b) { b.style.background = 'rgba(255,255,255,0.07)'; b.style.borderColor = 'rgba(255,255,255,0.2)'; b.style.color = 'rgba(255,255,255,0.96)'; };
+      var btnHoverOff = function(b) { b.style.background = 'transparent'; b.style.borderColor = 'rgba(255,255,255,0.12)'; b.style.color = 'rgba(255,255,255,0.6)'; };
 
-      // Reset button — wires to native #sm-btn-reset
+      // Reset button Ã¢â‚¬â€ wires to native #sm-btn-reset
       var resetBtn = document.createElement('button');
       resetBtn.textContent = '↺  RESET';
       resetBtn.style.cssText = btnStyle;
@@ -4371,19 +5542,19 @@
     }
   }
 
-  // ── Custom Import & Export dialog ─────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Custom Import & Export dialog Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   function showThemeAppliedToast(name) {
     var existing = document.getElementById('ryu-theme-toast');
     if (existing) existing.remove();
     var toast = document.createElement('div');
     toast.id = 'ryu-theme-toast';
-    toast.style.cssText = 'position:fixed;bottom:32px;left:50%;transform:translateX(-50%) translateY(20px);z-index:999999;background:#0d1117;border:1px solid rgba(34,211,238,0.35);border-radius:10px;padding:12px 24px;display:flex;align-items:center;gap:10px;font-family:"Noto Sans",sans-serif;box-shadow:0 0 30px rgba(34,211,238,0.15);opacity:0;transition:opacity 0.2s,transform 0.2s;pointer-events:none;';
+    toast.style.cssText = 'position:fixed;bottom:32px;left:50%;transform:translateX(-50%) translateY(20px);z-index:999999;background:#0d1117;border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:12px 24px;display:flex;align-items:center;gap:10px;font-family:"Noto Sans",sans-serif;box-shadow:0 0 30px rgba(0,0,0,0.24);opacity:0;transition:opacity 0.2s,transform 0.2s;pointer-events:none;';
     var icon = document.createElement('span');
     icon.textContent = '\u2713';
-    icon.style.cssText = 'font-size:16px;color:#22d3ee;font-weight:900;';
+    icon.style.cssText = 'font-size:16px;color:rgba(255,255,255,0.92);font-weight:900;';
     var msg = document.createElement('span');
     msg.style.cssText = 'font-size:12px;font-weight:700;letter-spacing:1px;color:rgba(255,255,255,0.85);';
-    msg.innerHTML = 'THEME APPLIED <span style="color:#22d3ee;">' + name + '</span>';
+    msg.innerHTML = 'THEME APPLIED <span style="color:rgba(255,255,255,0.92);">' + name + '</span>';
     toast.appendChild(icon);
     toast.appendChild(msg);
     document.body.appendChild(toast);
@@ -4408,12 +5579,12 @@
     overlay.id = 'ryu-imex-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);';
     var box = document.createElement('div');
-    box.style.cssText = 'background:#0d1117;border:1px solid rgba(34,211,238,0.25);border-radius:12px;min-width:320px;font-family:"Noto Sans",sans-serif;overflow:hidden;box-shadow:0 0 40px rgba(0,0,0,0.6);';
+    box.style.cssText = 'background:#0d1117;border:1px solid rgba(255,255,255,0.12);border-radius:12px;min-width:320px;font-family:"Noto Sans",sans-serif;overflow:hidden;box-shadow:0 0 40px rgba(0,0,0,0.6);';
     var header = document.createElement('div');
-    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.06);background:rgba(34,211,238,0.04);';
+    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.04);';
     var title = document.createElement('span');
     title.textContent = 'IMPORT & EXPORT';
-    title.style.cssText = 'font-size:12px;font-weight:700;letter-spacing:2px;color:#22d3ee;';
+    title.style.cssText = 'font-size:12px;font-weight:700;letter-spacing:2px;color:rgba(255,255,255,0.92);';
     var closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
     closeBtn.style.cssText = 'background:none;border:none;color:rgba(255,255,255,0.4);font-size:14px;cursor:pointer;padding:0;line-height:1;';
@@ -4429,16 +5600,16 @@
       label.textContent = cat;
       label.style.cssText = 'font-size:12px;font-weight:600;color:rgba(255,255,255,0.75);letter-spacing:0.5px;';
       var toggle = document.createElement('div');
-      toggle.style.cssText = 'width:18px;height:18px;border-radius:4px;border:1px solid rgba(34,211,238,0.4);display:flex;align-items:center;justify-content:center;transition:all 0.15s;background:' + (checked[idx] ? 'rgba(34,211,238,0.2)' : 'transparent') + ';';
+      toggle.style.cssText = 'width:18px;height:18px;border-radius:4px;border:1px solid rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;transition:all 0.15s;background:' + (checked[idx] ? 'rgba(255,255,255,0.10)' : 'transparent') + ';';
       var tick = document.createElement('span');
       tick.textContent = '✓';
-      tick.style.cssText = 'font-size:11px;color:#22d3ee;display:' + (checked[idx] ? 'block' : 'none') + ';';
+      tick.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.92);display:' + (checked[idx] ? 'block' : 'none') + ';';
       toggle.appendChild(tick);
       row.appendChild(label);
       row.appendChild(toggle);
       row.addEventListener('click', function() {
         checked[idx] = !checked[idx];
-        toggle.style.background = checked[idx] ? 'rgba(34,211,238,0.2)' : 'transparent';
+        toggle.style.background = checked[idx] ? 'rgba(255,255,255,0.10)' : 'transparent';
         tick.style.display = checked[idx] ? 'block' : 'none';
       });
       list.appendChild(row);
@@ -4447,9 +5618,9 @@
     footer.style.cssText = 'display:flex;gap:8px;padding:14px 18px;border-top:1px solid rgba(255,255,255,0.06);';
     var importBtn = document.createElement('button');
     importBtn.textContent = 'IMPORT';
-    importBtn.style.cssText = 'flex:1;height:36px;background:transparent;border:1px solid rgba(34,211,238,0.3);border-radius:7px;color:rgba(34,211,238,0.7);font-family:"Noto Sans",sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;cursor:pointer;transition:all 0.15s;';
-    importBtn.addEventListener('mouseenter', function() { importBtn.style.background = 'rgba(34,211,238,0.08)'; importBtn.style.color = '#22d3ee'; });
-    importBtn.addEventListener('mouseleave', function() { importBtn.style.background = 'transparent'; importBtn.style.color = 'rgba(34,211,238,0.7)'; });
+    importBtn.style.cssText = 'flex:1;height:36px;background:transparent;border:1px solid rgba(255,255,255,0.12);border-radius:7px;color:rgba(255,255,255,0.7);font-family:"Noto Sans",sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;cursor:pointer;transition:all 0.15s;';
+    importBtn.addEventListener('mouseenter', function() { importBtn.style.background = 'rgba(255,255,255,0.08)'; importBtn.style.color = 'rgba(255,255,255,0.96)'; });
+    importBtn.addEventListener('mouseleave', function() { importBtn.style.background = 'transparent'; importBtn.style.color = 'rgba(255,255,255,0.7)'; });
     importBtn.addEventListener('click', function() {
       overlay.remove();
       // Temporarily remove visibility:hidden from sm-partition so game fully initializes settings
@@ -4484,9 +5655,9 @@
     });
     var exportBtn = document.createElement('button');
     exportBtn.textContent = 'EXPORT';
-    exportBtn.style.cssText = 'flex:1;height:36px;background:rgba(34,211,238,0.1);border:1px solid rgba(34,211,238,0.4);border-radius:7px;color:#22d3ee;font-family:"Noto Sans",sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;cursor:pointer;transition:all 0.15s;';
-    exportBtn.addEventListener('mouseenter', function() { exportBtn.style.background = 'rgba(34,211,238,0.18)'; });
-    exportBtn.addEventListener('mouseleave', function() { exportBtn.style.background = 'rgba(34,211,238,0.1)'; });
+    exportBtn.style.cssText = 'flex:1;height:36px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:rgba(255,255,255,0.92);font-family:"Noto Sans",sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;cursor:pointer;transition:all 0.15s;';
+    exportBtn.addEventListener('mouseenter', function() { exportBtn.style.background = 'rgba(255,255,255,0.16)'; });
+    exportBtn.addEventListener('mouseleave', function() { exportBtn.style.background = 'rgba(255,255,255,0.10)'; });
     exportBtn.addEventListener('click', function() {
       overlay.remove();
       // Temporarily remove visibility:hidden from sm-partition so game fully initializes settings
@@ -4617,6 +5788,17 @@
       swatch.style.cursor = 'pointer';
       swatch.style.position = 'relative';
 
+      function syncSwatch() {
+        if (preview && preview.style.backgroundColor) swatch.style.background = preview.style.backgroundColor;
+      }
+      syncSwatch();
+      if (preview) {
+        new MutationObserver(syncSwatch).observe(preview, {
+          attributes: true,
+          attributeFilter: ['style', 'class']
+        });
+      }
+
       var qKeyMap = {
         'BORDER COLOR':                      'BORDER_COLOR',
         'BORDER GLOW COLOR':                 'BORDER_GLOW_COLOR',
@@ -4634,127 +5816,50 @@
         'CURSOR LINE COLOR':                 'CURSOR_LINE_COLOR'
       };
       var qKey = qKeyMap[label];
-
-      // Settings that use ARGB format (alpha in high byte)
       var qArgbKeys = {
         'BORDER_GLOW_COLOR': true,
         'ILL_ORB_BASE_COLOR': true,
         'ILL_ORB_GLOW_COLOR': true,
         'PARTICLE_GLOW_COLOR': true
       };
-
-      // Get initial color from __Q including alpha if applicable
-      function getInitialHex() {
-        if (qKey && globalThis.__Q && globalThis.__Q[qKey]) {
-          var val = globalThis.__Q[qKey]._5738;
-          if (typeof val === 'number') {
-            if (qArgbKeys[qKey]) {
-              var a = (val >>> 24) & 0xFF;
-              var r = (val >>> 16) & 0xFF;
-              var g = (val >>> 8)  & 0xFF;
-              var b =  val         & 0xFF;
-              return 'rgba(' + r + ',' + g + ',' + b + ',' + (a/255).toFixed(2) + ')';
-            } else {
-              return '#' + ('000000' + val.toString(16)).slice(-6);
-            }
-          }
-        }
-        if (preview && preview.style.backgroundColor) {
-          var rgb = preview.style.backgroundColor.match(/\d+/g);
-          if (rgb && rgb.length >= 3) {
-            return '#' + rgb.slice(0,3).map(function(x) { return ('0'+parseInt(x).toString(16)).slice(-2); }).join('');
-          }
-        }
-        return '#ffffff';
+      function colorToHex(color) {
+        if (!color) return '#ffffff';
+        if (color.charAt(0) === '#') return color.slice(0, 7);
+        var rgb = color.match(/\d+/g);
+        if (!rgb || rgb.length < 3) return '#ffffff';
+        return '#' + rgb.slice(0, 3).map(function(x) {
+          return ('0' + Math.max(0, Math.min(255, parseInt(x, 10) || 0)).toString(16)).slice(-2);
+        }).join('');
       }
-
-      swatch.style.background = getInitialHex();
-
-      var _pickrInstance = null;
-      var _pickrReady = false;
+      function initialColorHex() {
+        if (qKey && globalThis.__Q && globalThis.__Q[qKey] && typeof globalThis.__Q[qKey]._5738 === 'number') {
+          return '#' + ('000000' + (globalThis.__Q[qKey]._5738 & 0xffffff).toString(16)).slice(-6);
+        }
+        return colorToHex(swatch.style.background || (preview && preview.style.backgroundColor));
+      }
+      function applyColor(hex) {
+        swatch.style.background = hex;
+        if (!qKey || !globalThis.__Q || !globalThis.__Q[qKey]) return;
+        var rgb = parseInt(hex.replace('#', ''), 16) >>> 0;
+        var cur = globalThis.__Q[qKey]._5738;
+        var next = qArgbKeys[qKey] ? (((cur >>> 24) || 255) << 24) | rgb : rgb;
+        if (globalThis.__Q[qKey]._7531) globalThis.__Q[qKey]._7531(next >>> 0);
+        else globalThis.__Q[qKey]._5738 = next >>> 0;
+      }
+      var colorIn = document.createElement('input');
+      colorIn.type = 'color';
+      colorIn.value = initialColorHex();
+      colorIn.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;opacity:0;pointer-events:none;';
+      swatch.appendChild(colorIn);
+      colorIn.addEventListener('input', function() { applyColor(colorIn.value); });
+      colorIn.addEventListener('change', function() { applyColor(colorIn.value); });
 
       swatch.addEventListener('click', function(e) {
+        e.preventDefault();
         e.stopPropagation();
-        if (_pickrInstance && _pickrReady) {
-          _pickrInstance.show();
-          return;
-        }
-        if (_pickrReady) return; // already loading
-        _pickrReady = true;
-
-        // Load Pickr CSS once
-        if (!document.getElementById('ryu-pickr-css')) {
-          var pLink = document.createElement('link');
-          pLink.id = 'ryu-pickr-css';
-          pLink.rel = 'stylesheet';
-          pLink.href = chrome.runtime.getURL('vendor/pickr.nano.min.css');
-          document.head.appendChild(pLink);
-        }
-
-        function createPickr() {
-          var pickrEl = document.createElement('div');
-          pickrEl.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:0;height:0;overflow:hidden;';
-          document.getElementById(RYU_SP_ID).appendChild(pickrEl);
-
-          _pickrInstance = window.Pickr.create({
-            el: pickrEl,
-            theme: 'nano',
-            default: getInitialHex(),
-            defaultRepresentation: 'HEXA',
-            components: {
-              preview: true,
-              opacity: true,
-              hue: true,
-              interaction: {
-                hex: true,
-                rgba: true,
-                input: true,
-                save: false,
-                clear: false
-              }
-            }
-          });
-
-          _pickrInstance.on('change', function(color) {
-            var rgba = color.toRGBA();
-            var r = Math.round(rgba[0]);
-            var g = Math.round(rgba[1]);
-            var b = Math.round(rgba[2]);
-            var a = Math.round(rgba[3] * 255);
-            var hexInt;
-            if (qKey && qArgbKeys[qKey]) {
-              hexInt = ((a << 24) | (r << 16) | (g << 8) | b) >>> 0;
-            } else {
-              hexInt = (r << 16 | g << 8 | b) >>> 0;
-            }
-            swatch.style.background = 'rgba(' + r + ',' + g + ',' + b + ',' + rgba[3] + ')';
-            if (qKey && globalThis.__Q && globalThis.__Q[qKey] && globalThis.__Q[qKey]._7531) {
-              globalThis.__Q[qKey]._7531(hexInt);
-            }
-          });
-
-          _pickrInstance.on('show', function() {
-            var pcr = document.querySelector('.pcr-app.visible');
-            if (pcr) {
-              var sr = swatch.getBoundingClientRect();
-              pcr.style.position = 'fixed';
-              pcr.style.left = sr.left + 'px';
-              pcr.style.top  = (sr.bottom + 6) + 'px';
-              pcr.style.zIndex = '999999';
-            }
-          });
-
-          _pickrInstance.show();
-        }
-
-        if (window.Pickr) {
-          createPickr();
-        } else {
-          var script = document.createElement('script');
-          script.src = chrome.runtime.getURL('vendor/pickr.min.js');
-          script.onload = function() { createPickr(); };
-          document.head.appendChild(script);
-        }
+        colorIn.value = initialColorHex();
+        if (colorIn.showPicker) colorIn.showPicker();
+        else colorIn.click();
       });
 
       ctrl.appendChild(swatch);
@@ -4776,7 +5881,14 @@
         valDisp.className = 'ryu-sp-val';
         valDisp.textContent = valEl ? valEl.textContent.trim() : '0';
         var _drag = false;
-        var _synthetic = false;
+        function syncNativeRange() {
+          requestAnimationFrame(function() {
+            var uf = re.querySelector('.sm-range__fill');
+            var uv = nr.querySelector('.sm-range-value');
+            if (uf) fill.style.width = uf.style.width;
+            if (uv) valDisp.textContent = uv.textContent.trim();
+          });
+        }
         function applyAt(clientX) {
           var trackRect = track.getBoundingClientRect();
           if (!trackRect.width) return;
@@ -4784,11 +5896,9 @@
           var nativeRect = re.getBoundingClientRect();
           var nx = nativeRect.left + p * nativeRect.width;
           var ny = nativeRect.top + nativeRect.height / 2;
-          _synthetic = true;
           re.dispatchEvent(new MouseEvent('mousedown', { bubbles: false, clientX: nx, clientY: ny }));
           re.dispatchEvent(new MouseEvent('mousemove', { bubbles: false, clientX: nx, clientY: ny }));
-          _synthetic = false;
-          // Always sync our visual from native — handles both smooth and stepped sliders
+          // Always sync our visual from native Ã¢â‚¬â€ handles both smooth and stepped sliders
           requestAnimationFrame(function() {
             var uf = re.querySelector('.sm-range__fill');
             var uv = nr.querySelector('.sm-range-value');
@@ -4803,7 +5913,7 @@
         });
         track.addEventListener('dragstart', function(e) { e.preventDefault(); });
         window.addEventListener('mousemove', function(e) {
-          if (!_drag || _synthetic) return;
+          if (!_drag) return;
           applyAt(e.clientX);
         });
         window.addEventListener('mouseup', function(e) {
@@ -4862,12 +5972,12 @@
 
         var lh = document.createElement('div');
         lh.textContent = labelText;
-        lh.style.cssText = 'font-size:8px;font-weight:700;color:rgba(34,211,238,0.4);letter-spacing:1px;font-family:"Noto Sans",sans-serif;';
+        lh.style.cssText = 'font-size:8px;font-weight:700;color:rgba(255,255,255,0.45);letter-spacing:1px;font-family:"Noto Sans",sans-serif;';
         col.appendChild(lh);
 
         var kl = document.createElement('div');
         kl.className = 'ryu-sp-val';
-        kl.style.cssText = 'background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.2);border-radius:4px;padding:3px 10px;min-width:60px;text-align:center;cursor:pointer;font-size:10px;transition:all 0.15s;';
+        kl.style.cssText = 'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:4px;padding:3px 10px;min-width:60px;text-align:center;cursor:pointer;font-size:10px;transition:all 0.15s;';
         kl.textContent = (bindSpan ? bindSpan.textContent : nativeBind.textContent).replace(/keyboard$/i,'').replace(/mouse$/i,'').trim() || '\u2014';
         col.appendChild(kl);
 
@@ -4890,8 +6000,8 @@
             nativeBind.removeEventListener('blur', onBlur);
             if (smStyle) smStyle.textContent = origText;
             kl.textContent = (bindSpan ? bindSpan.textContent : nativeBind.textContent).replace(/keyboard$/i,'').replace(/mouse$/i,'').trim() || '\u2014';
-            kl.style.borderColor = 'rgba(34,211,238,0.2)';
-            kl.style.background = 'rgba(34,211,238,0.08)';
+            kl.style.borderColor = 'rgba(255,255,255,0.12)';
+            kl.style.background = 'rgba(255,255,255,0.06)';
           }
 
           window.__ryuActiveKlCancel = done;
@@ -4904,8 +6014,8 @@
           nativeBind.dispatchEvent(new MouseEvent('click',     { bubbles: true, cancelable: true }));
 
           kl.textContent = '...';
-          kl.style.borderColor = '#22d3ee';
-          kl.style.background = 'rgba(34,211,238,0.15)';
+          kl.style.borderColor = 'rgba(255,255,255,0.2)';
+          kl.style.background = 'rgba(255,255,255,0.10)';
 
           if (isMouse) {
             function onMouseBind(e) {
@@ -4916,8 +6026,8 @@
               nativeBind.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: e.button, buttons: e.buttons }));
               setTimeout(function() { done(); }, 80);
               kl.textContent = display;
-              kl.style.borderColor = 'rgba(34,211,238,0.2)';
-              kl.style.background = 'rgba(34,211,238,0.08)';
+              kl.style.borderColor = 'rgba(255,255,255,0.12)';
+              kl.style.background = 'rgba(255,255,255,0.06)';
             }
             setTimeout(function() {
               document.addEventListener('mousedown', onMouseBind, true);
@@ -4927,8 +6037,13 @@
               done();
             }, 10000);
           } else {
+            var dispatchingNativeKey = false;
+            function syncDisplay() {
+              kl.textContent = (bindSpan ? bindSpan.textContent : nativeBind.textContent).replace(/keyboard$/i,'').replace(/mouse$/i,'').trim() || '\u2014';
+            }
             function onKeydown(e) {
-              nativeBind.removeEventListener('keydown', onKeydown, true);
+              if (dispatchingNativeKey) return;
+              document.removeEventListener('keydown', onKeydown, true);
               var pressedCode = e.code;
               var display = pressedCode.replace('Key','').replace('Digit','').replace('Arrow','').replace('Numpad','NUM');
 
@@ -4959,10 +6074,10 @@
                 popIcon.style.cssText = 'font-size:26px;margin-bottom:10px;color:#e8192c;';
                 var popMsg = document.createElement('div');
                 popMsg.style.cssText = 'font-size:12px;font-weight:600;color:rgba(255,255,255,0.85);line-height:1.6;';
-                popMsg.innerHTML = 'Hotkey <span style="color:#22d3ee;font-weight:700;">' + display + '</span> is already being used for<br><span style="color:#e8192c;font-weight:700;">' + conflict + '</span>!<br><span style="color:rgba(255,255,255,0.5);font-size:11px;">Please choose another key.</span>';
+                popMsg.innerHTML = 'Hotkey <span style="color:rgba(255,255,255,0.92);font-weight:700;">' + display + '</span> is already being used for<br><span style="color:#e8192c;font-weight:700;">' + conflict + '</span>!<br><span style="color:rgba(255,255,255,0.5);font-size:11px;">Please choose another key.</span>';
                 var popOk = document.createElement('button');
                 popOk.textContent = 'OK';
-                popOk.style.cssText = 'margin-top:16px;padding:7px 28px;background:transparent;border:1px solid rgba(34,211,238,0.3);border-radius:6px;color:#22d3ee;font-family:"Noto Sans",sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;cursor:pointer;';
+                popOk.style.cssText = 'margin-top:16px;padding:7px 28px;background:transparent;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:rgba(255,255,255,0.92);font-family:"Noto Sans",sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;cursor:pointer;';
                 popOk.addEventListener('click', function() { popup.remove(); });
                 popBox.appendChild(popIcon);
                 popBox.appendChild(popMsg);
@@ -4972,20 +6087,43 @@
                 return;
               }
 
+              e.preventDefault();
+              e.stopPropagation();
+              dispatchingNativeKey = true;
+              document.dispatchEvent(new KeyboardEvent('keydown', {
+                bubbles: true,
+                cancelable: true,
+                key: e.key,
+                code: e.code,
+                keyCode: e.keyCode,
+                which: e.which
+              }));
+              nativeBind.dispatchEvent(new KeyboardEvent('keydown', {
+                bubbles: true,
+                cancelable: true,
+                key: e.key,
+                code: e.code,
+                keyCode: e.keyCode,
+                which: e.which
+              }));
+              dispatchingNativeKey = false;
               kl.textContent = display;
-              kl.style.borderColor = 'rgba(34,211,238,0.2)';
-              kl.style.background = 'rgba(34,211,238,0.08)';
+              kl.style.borderColor = 'rgba(255,255,255,0.12)';
+              kl.style.background = 'rgba(255,255,255,0.06)';
+              setTimeout(function() {
+                syncDisplay();
+                done();
+              }, 120);
             }
-            nativeBind.addEventListener('keydown', onKeydown, true);
+            document.addEventListener('keydown', onKeydown, true);
 
             function onBlur() {
-              nativeBind.removeEventListener('keydown', onKeydown, true);
-              done();
+              if (!kl._ryuActive) return;
             }
             nativeBind.addEventListener('blur', onBlur);
 
             fallbackTimer = setTimeout(function() {
-              nativeBind.removeEventListener('keydown', onKeydown, true);
+              document.removeEventListener('keydown', onKeydown, true);
               done();
             }, 10000);
           }
@@ -5041,9 +6179,86 @@
 
   function renderRyuThemeSection(content, sec) {
     function loadT() { try { return JSON.parse(localStorage.getItem('ryuTheme')) || {}; } catch(e) { return {}; } }
+    function getExtOrigin() {
+      try { return document.documentElement.getAttribute('data-ryu-ext-origin') || ''; } catch(e) { return ''; }
+    }
+    function buildVisualThemePayload() {
+      var source = loadT();
+      var out = {};
+      Object.keys(source).forEach(function(key) {
+        out[key] = source[key];
+      });
+      try {
+        var darkMirror = localStorage.getItem('ryuAgarMapDark');
+        if (darkMirror !== null) out.agarDarkModeOn = darkMirror === '1';
+      } catch(e) {}
+      if (out.cursorOn === undefined) out.cursorOn = false;
+      if (out.cursorIdx === undefined) out.cursorIdx = 0;
+      if (!out.cursorOn) out.cursorIdx = 0;
+      return {
+        version: 1,
+        theme: out
+      };
+    }
+    function applyVisualThemePayload(payload) {
+      if (!payload || typeof payload !== 'object') return;
+      var savedTheme = (payload.theme && typeof payload.theme === 'object') ? payload.theme : payload;
+      if (!savedTheme || typeof savedTheme !== 'object') return;
+      var nextTheme = Object.assign({}, savedTheme);
+      if (savedTheme.cursorOn === undefined) nextTheme.cursorOn = false;
+      if (savedTheme.cursorIdx === undefined) nextTheme.cursorIdx = 0;
+      if (!nextTheme.cursorOn) nextTheme.cursorIdx = 0;
+      localStorage.setItem('ryuTheme', JSON.stringify(nextTheme));
+      if (savedTheme.agarDarkModeOn !== undefined) {
+        try { localStorage.setItem('ryuAgarMapDark', savedTheme.agarDarkModeOn ? '1' : '0'); } catch(e) {}
+      }
+      try {
+        var nameHex = nextTheme.useDefault ? '#ffffff' : (nextTheme.color || '#ff69b4');
+        var nameInt = parseInt(String(nameHex).replace('#', ''), 16);
+        globalThis.__ryuNameTint = nameInt === 0 ? 0x010101 : nameInt;
+      } catch(e) {}
+      globalThis.__ryuPelletStyle = nextTheme.useDefault ? 0 : (nextTheme.pelletImgurOn ? 2 : (nextTheme.pelletEmojiOn ? 1 : 0));
+      globalThis.__ryuPelletEmoji = nextTheme.pelletEmoji || '\uD83D\uDD25';
+      globalThis.__ryuPelletImgur = nextTheme.pelletImgur || '';
+      globalThis.__ryuRainbowFoodParticles = !nextTheme.useDefault && !!nextTheme.rainbowParticlesOn;
+      globalThis.__ryuAgarMap = !nextTheme.useDefault && !!nextTheme.agarMapOn;
+      globalThis.__ryuAgarMapDark = !!nextTheme.agarDarkModeOn;
+      globalThis.__ryuTeamCellColorsOn = !nextTheme.useDefault && !!nextTheme.teamCellColorsOn;
+      globalThis.__ryuTeamCellColor = nextTheme.teamCellColor || '#ff69b4';
+      syncAgarModeState();
+      if (globalThis.__ryuRefreshSectorGrid) globalThis.__ryuRefreshSectorGrid();
+      if (globalThis.__ryuRefreshTeamCellColors) globalThis.__ryuRefreshTeamCellColors();
+      if (globalThis.__ryuRefreshMinimapStyle) {
+        globalThis.__ryuRefreshMinimapStyle();
+        setTimeout(globalThis.__ryuRefreshMinimapStyle, 80);
+      }
+      if (globalThis.__ryuRedrawName) globalThis.__ryuRedrawName();
+      if (globalThis.__ryuForceAtlasClear) globalThis.__ryuForceAtlasClear();
+      if (globalThis.__ryuApplyCursor) {
+        var CURSOR_EMOJIS = [null,'\uD83C\uDFAF','\u2694\uFE0F','\uD83D\uDC80','\uD83D\uDD25','\u2B50','\uD83D\uDC41\uFE0F','\uD83D\uDC8E','\uD83E\uDE78','\u26A1','\uD83C\uDF00','\uD83D\uDD79\uFE0F','\uD83C\uDF19','\uD83C\uDF40','\uD83E\uDD8B','\uD83D\uDC09','\uD83C\uDF83','\uD83E\uDDE0','\uD83E\uDE84','\uD83D\uDD2E','\uD83D\uDDE1\uFE0F','\uD83E\uDD77','\uD83D\uDC7D','\uD83E\uDD16','\uD83C\uDF0A','\uD83E\uDDCA','\u2620\uFE0F'];
+        var cursorIdx = parseInt(nextTheme.cursorIdx, 10) || 0;
+        globalThis.__ryuApplyCursor(nextTheme.cursorOn && cursorIdx > 0 ? (CURSOR_EMOJIS[cursorIdx] || null) : null);
+      }
+      if (globalThis.__ryuApplyLeftwardTagState) globalThis.__ryuApplyLeftwardTagState(nextTheme.leftwardTag !== false);
+      if (globalThis.__ryuRefreshAgarMapBackground) globalThis.__ryuRefreshAgarMapBackground();
+      if (globalThis.__ryuRefreshAll) globalThis.__ryuRefreshAll();
+    }
     function saveT(key, val) {
       var t = loadT(); t[key] = val;
       localStorage.setItem('ryuTheme', JSON.stringify(t));
+      if (globalThis.__ryuRefreshMassSettings && (
+        key === 'useDefault' || key === 'color' ||
+        key === 'massFont' || key === 'massColor' || key === 'syncMass' ||
+        key === 'massStroke' || key === 'massStrokeOn' || key === 'massStrokeWidth' ||
+        key === 'shortMass' || key === 'shortMassStroke' ||
+        key === 'shortMassStrokeOn' || key === 'shortMassStrokeWidth'
+      )) globalThis.__ryuRefreshMassSettings(true);
+      if (key === 'agarDarkModeOn' || key === 'agarMapDark') localStorage.setItem('ryuAgarMapDark', val ? '1' : '0');
+      syncAgarModeState();
+      if (key === 'sectorOverlayOn' || key === 'sectorLabelColor' || key === 'sectorGridColor' || key === 'sectorFont') {
+        if (globalThis.__ryuRefreshSectorGrid) globalThis.__ryuRefreshSectorGrid();
+        if (globalThis.__ryuRefreshAgarMapBackground) globalThis.__ryuRefreshAgarMapBackground();
+      }
       if (key === 'leftwardTag') {
         // apply LeftWard Tags immediately from settings instead of waiting for theme polls
         if (globalThis.__ryuApplyLeftwardTagState) {
@@ -5062,6 +6277,62 @@
       if (key === 'pelletStyle') globalThis.__ryuPelletStyle = parseInt(val, 10) || 0;
       if (key === 'pelletEmoji') globalThis.__ryuPelletEmoji = val || '\uD83D\uDD25';
       if (key === 'pelletImgur') globalThis.__ryuPelletImgur = val || '';
+      if (key === 'teamCellColorsOn') globalThis.__ryuTeamCellColorsOn = !!val;
+      if (key === 'teamCellColor') globalThis.__ryuTeamCellColor = val || '#ff69b4';
+      if (key === 'minimapPlusOn' || key === 'minimapThemeOn' || key === 'minimapStyle') {
+        if (globalThis.__ryuRefreshMinimapStyle) {
+          globalThis.__ryuRefreshMinimapStyle();
+          setTimeout(globalThis.__ryuRefreshMinimapStyle, 80);
+        }
+      }
+      if (key === 'color') {
+        var nameTintHex = parseInt(String(val || '#ffffff').replace('#', ''), 16);
+        globalThis.__ryuNameTint = nameTintHex === 0 ? 0x010101 : nameTintHex;
+      }
+      if (key === 'nameStroke' || key === 'nameStrokeOn' || key === 'nameStrokeWidth') {
+        if (globalThis.__ryuRefreshNameSettings) globalThis.__ryuRefreshNameSettings();
+      }
+      if (key === 'hideFlags' && globalThis.__ryuApplyHideFlagsState) {
+        globalThis.__ryuApplyHideFlagsState(!!val);
+      }
+      if (key === 'fontIndex' || key === 'boldName') {
+        if (globalThis.__ryuRefreshNameSettings) globalThis.__ryuRefreshNameSettings();
+      }
+      if (
+        key === 'proximityVoiceOn' ||
+        key === 'proximityVoiceMicMuted' ||
+        key === 'proximityVoiceVolume' ||
+        key === 'proximityVoiceNearRadius' ||
+        key === 'proximityVoiceFarRadius' ||
+        key === 'proximityVoiceInputDeviceId' ||
+        key === 'proximityVoiceOutputDeviceId'
+      ) {
+        if (globalThis.__ryuVoiceRefreshSettings) globalThis.__ryuVoiceRefreshSettings();
+      }
+      if (key === 'agarDarkModeOn' || key === 'agarMapDark' || key === 'agarMapOn' || key === 'agarMapModeOn' || key === 'agarModeOn') {
+        var at = loadT();
+        at = applyAgarModeSettings(at);
+        globalThis.__ryuAgarMap = !at.useDefault && !!at.agarMapOn;
+        globalThis.__ryuAgarMapDark = !!at.agarDarkModeOn;
+        if (globalThis.__ryuAgarMapDebugEnabled) {
+          console.log('[RyuTheme AgarMap toggle]', {
+            key: key,
+            value: val,
+            agarModeOn: !!at.agarModeOn,
+            agarMapOn: !!at.agarMapOn,
+            agarMapModeOn: !!at.agarMapModeOn,
+            agarDarkModeOn: !!at.agarDarkModeOn,
+            darkMirror: localStorage.getItem('ryuAgarMapDark')
+          });
+        }
+        if (globalThis.__ryuRefreshAgarMapBackground) globalThis.__ryuRefreshAgarMapBackground();
+      }
+      if (key === 'agarMapOn' && val && globalThis.__Q && globalThis.__Q.BORDER_SIZE) {
+        try {
+          if (globalThis.__Q.BORDER_SIZE._7531) globalThis.__Q.BORDER_SIZE._7531(0);
+          else globalThis.__Q.BORDER_SIZE._5738 = 0;
+        } catch(_) {}
+      }
       if (globalThis.__ryuRefreshAll) globalThis.__ryuRefreshAll();
     }
 
@@ -5085,7 +6356,7 @@
     content.appendChild(hdr);
     var t = loadT();
 
-    // ── THEMES section — import .ryuset files as named presets (max 5) ────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ THEMES section Ã¢â‚¬â€ import .ryuset files as named presets (max 5) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     if (sec === 'THEMES') {
       var PRESETS_KEY = 'ryuThemePresets';
       function loadPresets() { try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || '[]'); } catch(e) { return []; } }
@@ -5096,9 +6367,9 @@
         content.appendChild(hdr);
         var presets = loadPresets();
 
-        // Load Theme button — file picker for .ryuset
+        // Load Theme button Ã¢â‚¬â€ file picker for .ryuset
         var topRow = document.createElement('div');
-        topRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;';
+        topRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;';
 
         var countLbl = document.createElement('div');
         countLbl.textContent = presets.length + ' / 5 THEMES';
@@ -5111,9 +6382,9 @@
 
         var loadThemeBtn = document.createElement('button');
         loadThemeBtn.textContent = '\u2191  LOAD THEME';
-        loadThemeBtn.style.cssText = 'height:30px;padding:0 14px;background:rgba(34,211,238,0.1);border:1px solid rgba(34,211,238,0.3);border-radius:6px;color:#22d3ee;font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;cursor:pointer;transition:all 0.15s;white-space:nowrap;';
-        loadThemeBtn.addEventListener('mouseenter', function() { loadThemeBtn.style.background = 'rgba(34,211,238,0.2)'; });
-        loadThemeBtn.addEventListener('mouseleave', function() { loadThemeBtn.style.background = 'rgba(34,211,238,0.1)'; });
+        loadThemeBtn.style.cssText = 'height:30px;padding:0 14px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:rgba(255,255,255,0.92);font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;cursor:pointer;transition:all 0.15s;white-space:nowrap;';
+        loadThemeBtn.addEventListener('mouseenter', function() { loadThemeBtn.style.background = 'rgba(255,255,255,0.16)'; });
+        loadThemeBtn.addEventListener('mouseleave', function() { loadThemeBtn.style.background = 'rgba(255,255,255,0.10)'; });
         loadThemeBtn.addEventListener('click', function() {
           if (loadPresets().length >= 5) {
             loadThemeBtn.textContent = 'MAX 5 THEMES';
@@ -5121,13 +6392,44 @@
             loadThemeBtn.style.color = '#e8192c';
             setTimeout(function() {
               loadThemeBtn.textContent = '\u2191  LOAD THEME';
-              loadThemeBtn.style.borderColor = 'rgba(34,211,238,0.3)';
-              loadThemeBtn.style.color = '#22d3ee';
+              loadThemeBtn.style.borderColor = 'rgba(255,255,255,0.18)';
+              loadThemeBtn.style.color = 'rgba(255,255,255,0.92)';
             }, 1500);
             return;
           }
           fileInput.value = '';
           fileInput.click();
+        });
+
+        var saveThemeBtn = document.createElement('button');
+        saveThemeBtn.textContent = '\u2193  SAVE THEME';
+        saveThemeBtn.style.cssText = 'height:30px;padding:0 14px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:rgba(255,255,255,0.92);font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;cursor:pointer;transition:all 0.15s;white-space:nowrap;';
+        saveThemeBtn.addEventListener('mouseenter', function() { saveThemeBtn.style.background = 'rgba(255,255,255,0.16)'; });
+        saveThemeBtn.addEventListener('mouseleave', function() { saveThemeBtn.style.background = 'rgba(255,255,255,0.10)'; });
+        saveThemeBtn.addEventListener('click', function() {
+          var nativeSettings = {};
+          try {
+            var raw = localStorage.getItem('R10:SETTINGS');
+            if (raw) {
+              var parsed = JSON.parse(raw);
+              if (parsed && typeof parsed === 'object' && parsed.settings && typeof parsed.settings === 'object') {
+                nativeSettings = parsed.settings;
+              }
+            }
+          } catch(e) {}
+          var out = {
+            version: 3,
+            settings: nativeSettings,
+            ryuThemeVisual: buildVisualThemePayload()
+          };
+          var blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'ryutheme-theme.ryuset';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(function() { try { URL.revokeObjectURL(a.href); } catch(e) {} }, 1000);
         });
 
         fileInput.addEventListener('change', function() {
@@ -5137,7 +6439,6 @@
           reader.onload = function(e) {
             try {
               var parsed = JSON.parse(e.target.result);
-              var settings = parsed.settings || parsed;
               var p = loadPresets();
               if (p.length >= 5) return;
               // Use filename without extension as preset name
@@ -5145,7 +6446,7 @@
               // Deduplicate name
               var base = name, n = 1;
               while (p.some(function(x) { return x.name === name; })) { name = base + ' (' + (++n) + ')'; }
-              p.push({ name: name, data: settings });
+              p.push({ name: name, data: parsed });
               savePresets(p);
               buildThemesUI();
             } catch(err) {
@@ -5154,8 +6455,8 @@
               loadThemeBtn.style.color = '#e8192c';
               setTimeout(function() {
                 loadThemeBtn.textContent = '\u2191  LOAD THEME';
-                loadThemeBtn.style.borderColor = 'rgba(34,211,238,0.3)';
-                loadThemeBtn.style.color = '#22d3ee';
+                loadThemeBtn.style.borderColor = 'rgba(255,255,255,0.18)';
+                loadThemeBtn.style.color = 'rgba(255,255,255,0.92)';
               }, 1500);
             }
           };
@@ -5163,8 +6464,12 @@
         });
 
         topRow.appendChild(countLbl);
-        topRow.appendChild(fileInput);
-        topRow.appendChild(loadThemeBtn);
+        var btnWrap = document.createElement('div');
+        btnWrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+        btnWrap.appendChild(fileInput);
+        btnWrap.appendChild(saveThemeBtn);
+        btnWrap.appendChild(loadThemeBtn);
+        topRow.appendChild(btnWrap);
         content.appendChild(topRow);
 
         // Preset list
@@ -5184,20 +6489,20 @@
 
             var applyBtn = document.createElement('button');
             applyBtn.textContent = 'APPLY';
-            applyBtn.style.cssText = 'height:26px;padding:0 10px;background:rgba(34,211,238,0.1);border:1px solid rgba(34,211,238,0.25);border-radius:5px;color:#22d3ee;font-family:"Noto Sans",sans-serif;font-size:9px;font-weight:700;letter-spacing:1.5px;cursor:pointer;transition:all 0.15s;white-space:nowrap;';
-            applyBtn.addEventListener('mouseenter', function() { applyBtn.style.background = 'rgba(34,211,238,0.2)'; });
-            applyBtn.addEventListener('mouseleave', function() { applyBtn.style.background = 'rgba(34,211,238,0.1)'; });
+            applyBtn.style.cssText = 'height:26px;padding:0 10px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.18);border-radius:5px;color:rgba(255,255,255,0.92);font-family:"Noto Sans",sans-serif;font-size:9px;font-weight:700;letter-spacing:1.5px;cursor:pointer;transition:all 0.15s;white-space:nowrap;';
+            applyBtn.addEventListener('mouseenter', function() { applyBtn.style.background = 'rgba(255,255,255,0.16)'; });
+            applyBtn.addEventListener('mouseleave', function() { applyBtn.style.background = 'rgba(255,255,255,0.10)'; });
             applyBtn.addEventListener('click', function() {
               // confirm popup
               var confirmOvr = document.createElement('div');
               confirmOvr.style.cssText = 'position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);';
               var confirmBox = document.createElement('div');
-              confirmBox.style.cssText = 'background:#0d1117;border:1px solid rgba(34,211,238,0.3);border-radius:10px;padding:24px 28px;display:flex;flex-direction:column;align-items:center;gap:14px;min-width:280px;font-family:"Noto Sans",sans-serif;box-shadow:0 0 30px rgba(34,211,238,0.1);';
+              confirmBox.style.cssText = 'background:#0d1117;border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:24px 28px;display:flex;flex-direction:column;align-items:center;gap:14px;min-width:280px;font-family:"Noto Sans",sans-serif;box-shadow:0 0 30px rgba(0,0,0,0.24);';
               confirmBox.innerHTML = '<div style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.9);letter-spacing:0.5px;">Load Theme</div>' +
-                '<div style="font-size:11px;color:rgba(255,255,255,0.5);text-align:center;line-height:1.6;">Are you sure you want to load<br><span style="color:#22d3ee;font-weight:700;">' + preset.name + '</span>?<br><span style="font-size:10px;color:rgba(255,255,255,0.3);">Your current theme will be overwritten.</span></div>' +
+                '<div style="font-size:11px;color:rgba(255,255,255,0.5);text-align:center;line-height:1.6;">Are you sure you want to load<br><span style="color:rgba(255,255,255,0.92);font-weight:700;">' + preset.name + '</span>?<br><span style="font-size:10px;color:rgba(255,255,255,0.3);">Your current theme will be overwritten.</span></div>' +
                 '<div style="display:flex;gap:10px;">' +
                 '<button id="ryu-theme-cancel" style="height:32px;padding:0 20px;background:transparent;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:rgba(255,255,255,0.5);font-family:\'Noto Sans\',sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;cursor:pointer;">CANCEL</button>' +
-                '<button id="ryu-theme-confirm" style="height:32px;padding:0 20px;background:rgba(34,211,238,0.12);border:1px solid rgba(34,211,238,0.4);border-radius:6px;color:#22d3ee;font-family:\'Noto Sans\',sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;cursor:pointer;">LOAD</button>' +
+                '<button id="ryu-theme-confirm" style="height:32px;padding:0 20px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:rgba(255,255,255,0.92);font-family:\'Noto Sans\',sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;cursor:pointer;">LOAD</button>' +
                 '</div>';
               confirmOvr.appendChild(confirmBox);
               document.body.appendChild(confirmOvr);
@@ -5206,13 +6511,18 @@
               confirmOvr.querySelector('#ryu-theme-confirm').addEventListener('click', function() {
                 confirmOvr.remove();
                 var yt = globalThis.__ryuYt;
+                var presetPayload = preset.data || {};
+                var nativePayload = (presetPayload && presetPayload.settings && typeof presetPayload.settings === 'object')
+                  ? presetPayload
+                  : { version: 3, settings: presetPayload || {} };
                 if (yt && typeof yt._3767 === 'function') {
                   var cats = new Set(['Gameplay','Graphics','Theme','Controls','Chat','Huds']);
                   var uObj = globalThis.__ryuU;
                   var origNotify = uObj ? uObj._1162 : null;
                   if (uObj) uObj._1162 = function() {};
-                  yt._3767('import', [{ version: 3, settings: preset.data }, cats]);
+                  yt._3767('import', [nativePayload, cats]);
                   if (uObj && origNotify) uObj._1162 = origNotify;
+                  applyVisualThemePayload(presetPayload.ryuThemeVisual || presetPayload.ryuTheme || null);
                   showThemeAppliedToast(preset.name);
                 } else {
                   applyBtn.textContent = 'NOT READY';
@@ -5220,24 +6530,24 @@
                   applyBtn.style.color = '#e8192c';
                   setTimeout(function() {
                     applyBtn.textContent = 'APPLY';
-                    applyBtn.style.borderColor = 'rgba(34,211,238,0.25)';
-                    applyBtn.style.color = '#22d3ee';
+                    applyBtn.style.borderColor = 'rgba(255,255,255,0.18)';
+                    applyBtn.style.color = 'rgba(255,255,255,0.92)';
                   }, 1500);
                 }
               });
             });
 
-            // Rename button — toggles name label into editable input
+            // Rename button Ã¢â‚¬â€ toggles name label into editable input
             var renameBtn = document.createElement('div');
             renameBtn.textContent = '\u270e';
             renameBtn.title = 'Rename';
             renameBtn.style.cssText = 'width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:rgba(255,255,255,0.3);font-size:12px;border-radius:3px;transition:all 0.15s;flex-shrink:0;';
-            renameBtn.addEventListener('mouseenter', function() { renameBtn.style.color = '#22d3ee'; renameBtn.style.background = 'rgba(34,211,238,0.1)'; });
+            renameBtn.addEventListener('mouseenter', function() { renameBtn.style.color = 'rgba(255,255,255,0.92)'; renameBtn.style.background = 'rgba(255,255,255,0.08)'; });
             renameBtn.addEventListener('mouseleave', function() { renameBtn.style.color = 'rgba(255,255,255,0.3)'; renameBtn.style.background = 'transparent'; });
             renameBtn.addEventListener('click', function() {
               var inp = document.createElement('input');
               inp.value = preset.name;
-              inp.style.cssText = 'flex:1;height:22px;background:#1c2128;border:1px solid rgba(34,211,238,0.4);border-radius:4px;color:rgba(255,255,255,0.9);font-family:"Noto Sans",sans-serif;font-size:11px;padding:0 7px;outline:none;min-width:0;';
+              inp.style.cssText = 'flex:1;height:22px;background:#1c2128;border:1px solid rgba(255,255,255,0.18);border-radius:4px;color:rgba(255,255,255,0.9);font-family:"Noto Sans",sans-serif;font-size:11px;padding:0 7px;outline:none;min-width:0;';
               row.replaceChild(inp, nameLbl);
               inp.focus();
               inp.select();
@@ -5289,9 +6599,9 @@
         warn.style.cssText = 'flex:1;font-size:10px;font-weight:600;color:rgba(255,255,255,0.25);font-family:"Noto Sans",sans-serif;line-height:1.6;letter-spacing:0.3px;';
         var saveNativeBtn = document.createElement('button');
         saveNativeBtn.textContent = 'SAVE';
-        saveNativeBtn.style.cssText = 'height:26px;padding:0 12px;background:rgba(34,211,238,0.1);border:1px solid rgba(34,211,238,0.3);border-radius:5px;color:#22d3ee;font-family:"Noto Sans",sans-serif;font-size:9px;font-weight:700;letter-spacing:1.5px;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:all 0.15s;';
-        saveNativeBtn.addEventListener('mouseenter', function() { saveNativeBtn.style.background = 'rgba(34,211,238,0.2)'; });
-        saveNativeBtn.addEventListener('mouseleave', function() { saveNativeBtn.style.background = 'rgba(34,211,238,0.1)'; });
+        saveNativeBtn.style.cssText = 'height:26px;padding:0 12px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.18);border-radius:5px;color:rgba(255,255,255,0.92);font-family:"Noto Sans",sans-serif;font-size:9px;font-weight:700;letter-spacing:1.5px;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:all 0.15s;';
+        saveNativeBtn.addEventListener('mouseenter', function() { saveNativeBtn.style.background = 'rgba(255,255,255,0.16)'; });
+        saveNativeBtn.addEventListener('mouseleave', function() { saveNativeBtn.style.background = 'rgba(255,255,255,0.1)'; });
         saveNativeBtn.addEventListener('click', function() {
           var nativeExport = document.getElementById('export-settings-button');
           if (nativeExport) {
@@ -5312,11 +6622,14 @@
     var defs = {
       'GAMEPLAY TWEAKS': [
         { label: 'GENERAL',            type: 'group' },
-        { label: 'Animation Delay',    type: 'animSoften' },
+        { label: 'Custom Animation Delay',    type: 'animSoften' },
         { label: 'Split Counter',      type: 'toggle',       key: 'splitCounterOn',  def: false },
+        { label: 'RyuTheme Kill Feed', type: 'toggle',       key: 'killFeedOn',      def: false },
+        { label: 'Kill Feed Avatar',   type: 'kfAvatar',     key: 'kfAvatar',        def: '' },
+        { label: 'Teammate Indicator', type: 'toggle',       key: 'teammateIndicatorOn', def: true },
+        { label: 'Minimap Plus',       type: 'toggle',       key: 'minimapPlusOn', def: true },
         { label: 'World Sectors',      type: 'sectorExpand', key: 'sectorOverlayOn', def: false },
         { label: 'Emotes',             type: 'toggle', key: 'emotesOn',          def: true },
-        { label: 'Agar.io Virus',      type: 'toggle', key: 'customVirus',       def: false },
         { label: 'Team Cell Colors',   type: 'teamColorExpand' },
         { label: 'DANGER',             type: 'group' },
         { label: 'Danger Indicators',  type: 'toggle', key: 'dangerIndicatorOn', def: false },
@@ -5326,35 +6639,49 @@
         { label: 'Red (danger)',       type: 'toggle', key: 'dangerShowRed',     def: true }
       ],
       'COMMANDER': [
-        { label: 'Ping Text',   type: 'text',   key: 'commanderText', def: '' },
-        { label: 'Team Tag',    type: 'teamtag', key: 'teamTag',       def: '' }
+        { label: 'Mode',        type: 'cycle',  key: 'commanderMode', def: 'text', options: ['text', 'imgur'] },
+        { label: 'Enable Spam', type: 'toggle', key: 'commanderSpamOn', def: true },
+        { label: 'Ping Text',   type: 'text',   key: 'commanderText', def: '', placeholder: 'Enter ping text...' },
+        { label: 'Imgur Link',  type: 'text',   key: 'commanderImgur', def: '', placeholder: 'https://i.imgur.com/example.png' }
       ],
       'CURSOR': [
         { label: 'Cursor Style', type: 'select', key: 'cursorIdx', def: 0, options: CURSORS }
       ],
       'GAME COSMETICS': [
         { label: 'CELL COSMETICS',     type: 'group' },
-        { label: 'Name Color',         type: 'color',  key: 'color',            def: '#ff69b4' },
+        { label: 'Name Color',         type: 'cellCosmeticExpand', control: { type: 'color', key: 'color', def: '#ff69b4' }, subSettings: 'Name Stroke Name Stroke Color Name Stroke Thickness', children: [
+          { label: 'Name Stroke',      type: 'toggle', key: 'nameStrokeOn',      def: true },
+          { label: 'Name Stroke Color', type: 'color', key: 'nameStroke',        def: '#000000', dependsOnToggle: 'nameStrokeOn' },
+          { label: 'Name Stroke Thickness', type: 'slider', key: 'nameStrokeWidth', def: 4, min: 1, max: 10, dependsOnToggle: 'nameStrokeOn' }
+        ] },
         { label: 'Name Font',          type: 'select', key: 'fontIndex',         def: 0, options: FONTS },
-        { label: '',                   type: 'fontupdate' },
-        { label: 'Hide Flags',         type: 'toggle', key: 'hideFlags',         def: false },
-        { label: 'LeftWard Tags',      type: 'toggle', key: 'leftwardTag',       def: true },
         { label: 'Name Scale',         type: 'toggle', key: 'nameScaleOn',       def: false },
         { label: 'Name Size',          type: 'scaleslider', key: 'nameScale',    def: 100, min: 50, max: 300, step: 5 },
-        { label: 'Mass Color',         type: 'color',  key: 'massColor',         def: '#ff69b4' },
+        { label: 'Hide Flags',         type: 'toggle', key: 'hideFlags',         def: false },
+        { label: 'LeftWard Tags',      type: 'toggle', key: 'leftwardTag',       def: true },
+        { label: 'Cell Avatar',        type: 'toggle', key: 'cellAvatarBadge',   def: true },
+        { label: 'Mass Color',         type: 'cellCosmeticExpand', control: { type: 'color', key: 'massColor', def: '#ff69b4' }, subSettings: 'Mass Stroke Mass Stroke Color Mass Stroke Thickness', children: [
+          { label: 'Mass Stroke',      type: 'toggle', key: 'massStrokeOn',      def: true },
+          { label: 'Mass Stroke Color', type: 'color', key: 'massStroke',        def: '#000000', dependsOnToggle: 'massStrokeOn' },
+          { label: 'Mass Stroke Thickness', type: 'slider', key: 'massStrokeWidth', def: 4, min: 1, max: 10, dependsOnToggle: 'massStrokeOn' }
+        ] },
         { label: 'Mass Font',          type: 'select', key: 'massFont',          def: 0, options: FONTS },
         { label: 'Mass Scale',         type: 'toggle', key: 'massScaleOn',       def: false },
         { label: 'Mass Size',          type: 'scaleslider', key: 'massScale',    def: 100, min: 50, max: 300, step: 5 },
+        { label: 'Short Mass',         type: 'cellCosmeticExpand', control: { type: 'toggle', key: 'shortMass', def: false }, subSettings: 'Short Mass Stroke Short Mass Stroke Color Short Mass Stroke Thickness', children: [
+          { label: 'Short Mass Stroke', type: 'toggle', key: 'shortMassStrokeOn', def: true },
+          { label: 'Short Mass Stroke Color', type: 'color', key: 'shortMassStroke', def: '#000000' },
+          { label: 'Short Mass Stroke Thickness', type: 'slider', key: 'shortMassStrokeWidth', def: 4, min: 1, max: 10 }
+        ] },
+        { label: 'AGAR.IO MODE',      type: 'group' },
+        { label: 'Agar.io Mode',      type: 'agarModeExpand' },
         { label: 'CHATBOX',           type: 'group' },
         { label: 'Chatbox Theme',     type: 'toggle', key: 'chatboxThemeOn',  def: false },
+        { label: 'Chatbox Style',     type: 'select', key: 'chatboxStyle',    def: 0, options: ['RyuTheme'] },
         { label: 'Chat Name Color',   type: 'color',  key: 'chatNameColor',   def: '#9933ff' },
-        { label: 'Chatbox Scale',     type: 'scale',  key: 'chatScale',       def: 50, min: 10, max: 100 },
         { label: 'LEADERBOARD',       type: 'group' },
         { label: 'Leaderboard Theme', type: 'toggle', key: 'lbThemeOn',  def: true },
-        { label: 'Leaderboard Styles', type: 'select', key: 'lbStyle',   def: 0, options: ['RyuTheme', 'Agar.io LB'] },
-        { label: 'LB Size',           type: 'cycle',  key: 'lbSize',     def: 'M', options: ['S', 'M', 'L'] },
-        { label: 'MAP',               type: 'group' },
-        { label: 'Agar.io Map',       type: 'toggle', key: 'agarMapOn',  def: false },
+        { label: 'Leaderboard Styles', type: 'select', key: 'lbStyle',   def: 0, options: ['RyuTheme'] },
         { label: 'PELLETS',           type: 'group' },
         { label: 'Custom Color',      type: 'toggle', key: 'pelletColorOn',   def: false },
         { label: 'Pellet Color',      type: 'color',  key: 'pelletColor',     def: '#ff69b4' },
@@ -5364,10 +6691,11 @@
         { label: 'Rainbow Map Dots',  type: 'toggle', key: 'rainbowParticlesOn',    def: false },
         { label: 'MINIMAP',           type: 'group' },
         { label: 'Minimap Theme',     type: 'toggle', key: 'minimapThemeOn',  def: true },
-        { label: 'Minimap Style',     type: 'select', key: 'minimapStyle',    def: 1, options: ['Classic', 'Cyan', 'Agar.io'] },
-        { label: 'Minimap Scale',     type: 'scale',  key: 'mmScale',         def: 50, min: 10, max: 100 },
+        { label: 'Minimap Style',     type: 'select', key: 'minimapStyle',    def: 1, options: ['RyuTheme', 'Classic'], values: [1, 0] },
         { label: 'OTHER',             type: 'group' },
-        { label: 'Minimal Mode',      type: 'minimalExpand', key: 'minimalModeOn', def: false }
+        { label: 'Minimal Mode',      type: 'minimalExpand', key: 'minimalModeOn', def: false },
+        { label: 'EXPERIMENTAL',      type: 'group' },
+        { label: 'Animated Skin',     type: 'animatedSkin' }
       ],
       'BORDER': [
         { label: 'Rainbow Border', type: 'toggle', key: 'rainbowBorderOn',   def: true },
@@ -5378,9 +6706,28 @@
       'HOTKEYS': [
         { label: 'Disconnect',     type: 'hotkey', key: 'hotkeyDisconnect',    def: '' },
         { label: 'Emote Panel',    type: 'hotkey', key: 'hotkeyEmote',         def: 'RIGHTCLICK' },
+        { label: 'Favorite Emote', type: 'favoriteEmote' },
+        { label: 'Hide Flags',     type: 'hotkey', key: 'hotkeyHideFlags',     def: '' },
         { label: 'Danger Overlay', type: 'hotkey', key: 'hotkeyDangerOverlay', def: '' },
+        { label: 'Teammate Indicator', type: 'hotkey', key: 'hotkeyTeammateIndicator', def: '' },
         { label: 'Minimal Mode',   type: 'hotkey', key: 'hotkeyMinimalMode',   def: '' },
-        { label: 'Freecam',        type: 'hotkey', key: 'hotkeyFreecam',       def: '' }
+        { label: 'Mute Mic',       type: 'hotkey', key: 'hotkeyMuteMic',       def: '' },
+        { label: 'Celebrate',      type: 'hotkey', key: 'hotkeyCelebrate',     def: '' },
+        { label: 'Auto Spawn',     type: 'hotkey', key: 'hotkeyFastSpawn',     def: '' },
+        { label: 'Inferno Macro',  type: 'hotkey', key: 'hotkeyInfernoMacro',  def: '' },
+        { label: 'Targeted Feed',  type: 'hotkey', key: 'hotkeyTargetedFeed',  def: '' }
+      ],
+      'PROXIMITY CHAT': [
+        { label: 'VOICE',               type: 'group' },
+        { label: 'Proximity Chat',      type: 'toggle', key: 'proximityVoiceOn', def: false },
+        { label: 'Mute Microphone',     type: 'toggle', key: 'proximityVoiceMicMuted', def: false },
+        { label: 'Request Mic Access',  type: 'actionButton', action: 'voiceRequestAccess', text: 'Request' },
+        { label: 'Refresh Devices',     type: 'actionButton', action: 'voiceRefreshDevices', text: 'Refresh' },
+        { label: 'Input Device',        type: 'deviceSelect', key: 'proximityVoiceInputDeviceId', deviceKind: 'input', def: 'default' },
+        { label: 'Output Device',       type: 'deviceSelect', key: 'proximityVoiceOutputDeviceId', deviceKind: 'output', def: 'default' },
+        { label: 'Voice Volume',        type: 'slider', key: 'proximityVoiceVolume', def: 100, min: 0, max: 100 },
+        { label: 'Clear Radius',        type: 'slider', key: 'proximityVoiceNearRadius', def: 1400, min: 400, max: 4000 },
+        { label: 'Fade Radius',         type: 'slider', key: 'proximityVoiceFarRadius', def: 5200, min: 1200, max: 9000 }
       ]
     };
 
@@ -5389,9 +6736,463 @@
       // group header
       if (def.type === 'group') {
         var grp = document.createElement('div');
-        grp.style.cssText = 'font-family:"Noto Sans",sans-serif;font-size:9px;font-weight:800;letter-spacing:2.5px;color:rgba(34,211,238,0.45);padding:14px 0 6px;text-transform:uppercase;border-top:1px solid rgba(255,255,255,0.04);margin-top:4px;';
+        grp.style.cssText = 'font-family:"Noto Sans",sans-serif;font-size:12px;font-weight:900;letter-spacing:2.8px;color:rgba(255,255,255,0.86);padding:16px 0 7px;text-transform:uppercase;border-top:1px solid rgba(255,255,255,0.08);margin-top:6px;';
         grp.textContent = def.label;
         content.appendChild(grp);
+        return;
+      }
+
+      if (def.type === 'animatedSkin') {
+        var inputStyle = 'flex:1;height:28px;padding:0 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.14);border-radius:6px;color:rgba(255,255,255,0.9);font-family:"Noto Sans",sans-serif;font-size:11px;outline:none;';
+        var btnStyle = 'height:28px;padding:0 12px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:rgba(255,255,255,0.92);font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;letter-spacing:1.2px;cursor:pointer;white-space:nowrap;flex-shrink:0;';
+        var subStyle = 'font-size:10px;color:rgba(255,255,255,0.35);font-family:"Noto Sans",sans-serif;line-height:1.4;margin-top:2px;';
+        var rowWrap = 'display:flex;gap:6px;align-items:center;';
+        function saveAnimatedSkinPref(key, value) {
+          var nextTheme = loadTheme();
+          nextTheme[key] = value;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(nextTheme));
+        }
+
+        var asRow = document.createElement('div');
+        asRow.className = 'ryu-sp-row';
+        asRow.style.cssText = 'flex-direction:column;align-items:stretch;gap:10px;padding:10px 0;';
+
+        // label
+        var asLbl = document.createElement('div');
+        asLbl.className = 'ryu-sp-label';
+        asLbl.textContent = def.label;
+        asRow.appendChild(asLbl);
+
+        // ── STEP 1 ──
+        var s1Head = document.createElement('div');
+        s1Head.style.cssText = 'font-size:9px;font-weight:800;letter-spacing:2px;color:rgba(255,255,255,0.45);text-transform:uppercase;';
+        s1Head.textContent = 'STEP 1 · DOWNLOAD FRAMES';
+        asRow.appendChild(s1Head);
+
+        var s1Sub = document.createElement('div');
+        s1Sub.style.cssText = subStyle;
+        s1Sub.textContent = 'Paste a GIF URL. Frames download as PNGs — upload them to an imgur album.';
+        asRow.appendChild(s1Sub);
+
+        var s1Row = document.createElement('div');
+        s1Row.style.cssText = rowWrap;
+
+        var s1Input = document.createElement('input');
+        s1Input.type = 'text';
+        s1Input.placeholder = 'https://i.imgur.com/XXXXXXX.gif';
+        s1Input.style.cssText = inputStyle;
+        s1Input.value = String(t.animatedSkinGifUrl || '');
+        s1Input.addEventListener('input', function() {
+          saveAnimatedSkinPref('animatedSkinGifUrl', s1Input.value);
+        });
+
+        var s1Status = document.createElement('div');
+        s1Status.style.cssText = 'font-size:10px;font-weight:700;letter-spacing:1px;color:rgba(255,255,255,0.38);font-family:"Noto Sans",sans-serif;text-transform:uppercase;min-width:54px;text-align:right;';
+
+        var s1Btn = document.createElement('button');
+        s1Btn.style.cssText = btnStyle;
+        s1Btn.textContent = 'DOWNLOAD';
+
+        s1Btn.addEventListener('click', function() {
+          var gifUrl = s1Input.value.trim();
+          if (!gifUrl) { s1Status.textContent = 'ENTER URL'; return; }
+          var exp = globalThis.__ryuGifSkinExperiment;
+          if (!exp || !exp.decode) { s1Status.textContent = 'UNAVAIL'; return; }
+          s1Btn.textContent = 'DECODING...';
+          s1Status.textContent = '';
+          exp.decode(gifUrl, { maxFrames: 48, fps: 8, maxDimension: 256 }).then(function(result) {
+            var frames = result.frames;
+            s1Status.textContent = 'ZIPPING ' + frames.length + '...';
+            function doZip() {
+              var zip = new JSZip();
+              var folder = zip.folder('frames');
+              frames.forEach(function(dataUrl, i) {
+                var b64 = dataUrl.split(',')[1];
+                folder.file('frame_' + String(i + 1).padStart(4, '0') + '.png', b64, { base64: true });
+              });
+              zip.generateAsync({ type: 'blob' }).then(function(blob) {
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'skin_frames.zip';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                s1Status.textContent = frames.length + ' FRAMES';
+                s1Btn.textContent = 'DOWNLOAD';
+              });
+            }
+            // Chrome Web Store / MV3: JSZip must ship inside the extension.
+            // Do not fetch it from a CDN or any other remote host, or Blue Argon
+            // will reject the build for remotely hosted code.
+            if (window.JSZip) {
+              doZip();
+            } else {
+              s1Status.textContent = 'ZIP LIB ERR';
+              s1Btn.textContent = 'DOWNLOAD';
+            }
+          }).catch(function(err) {
+            console.error('[AnimatedSkin step1]', err);
+            s1Btn.textContent = 'DOWNLOAD';
+            s1Status.textContent = 'ERROR';
+            s1Status.style.color = 'rgba(232,25,44,0.92)';
+          });
+        });
+
+        s1Row.appendChild(s1Input);
+        s1Row.appendChild(s1Status);
+        s1Row.appendChild(s1Btn);
+        asRow.appendChild(s1Row);
+
+        // divider
+        var divider = document.createElement('div');
+        divider.style.cssText = 'border-top:1px solid rgba(255,255,255,0.06);margin:2px 0;';
+        asRow.appendChild(divider);
+
+        // ── STEP 2 ──
+        var s2Head = document.createElement('div');
+        s2Head.style.cssText = 'font-size:9px;font-weight:800;letter-spacing:2px;color:rgba(255,255,255,0.45);text-transform:uppercase;';
+        s2Head.textContent = 'STEP 2 · ANIMATE FROM ALBUM';
+        asRow.appendChild(s2Head);
+
+        var s2Sub = document.createElement('div');
+        s2Sub.style.cssText = subStyle;
+        s2Sub.textContent = 'Paste your imgur album URL. Everyone in game sees the animation.';
+        asRow.appendChild(s2Sub);
+
+        var s2Row1 = document.createElement('div');
+        s2Row1.style.cssText = rowWrap;
+
+        var s2Input = document.createElement('input');
+        s2Input.type = 'text';
+        s2Input.placeholder = 'https://imgur.com/a/XXXXXXX';
+        s2Input.style.cssText = inputStyle;
+        s2Input.value = String(t.animatedSkinAlbumUrl || '');
+        s2Input.addEventListener('input', function() {
+          saveAnimatedSkinPref('animatedSkinAlbumUrl', s2Input.value);
+        });
+
+        var s2DelayInput = document.createElement('input');
+        s2DelayInput.type = 'number';
+        s2DelayInput.placeholder = 'ms';
+        s2DelayInput.value = String(parseInt(t.animatedSkinDelayMs, 10) || 100);
+        s2DelayInput.min = '40';
+        s2DelayInput.max = '2000';
+        s2DelayInput.style.cssText = 'width:54px;height:28px;padding:0 6px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.14);border-radius:6px;color:rgba(255,255,255,0.9);font-family:"Noto Sans",sans-serif;font-size:11px;outline:none;text-align:center;flex-shrink:0;';
+        s2DelayInput.title = 'Frame delay in ms';
+        s2DelayInput.addEventListener('input', function() {
+          var delayMs = parseInt(s2DelayInput.value, 10) || 100;
+          saveAnimatedSkinPref('animatedSkinDelayMs', delayMs);
+        });
+
+        s2Row1.appendChild(s2Input);
+        s2Row1.appendChild(s2DelayInput);
+        asRow.appendChild(s2Row1);
+
+        var s2Row2 = document.createElement('div');
+        s2Row2.style.cssText = rowWrap;
+
+        var s2Status = document.createElement('div');
+        s2Status.style.cssText = 'flex:1;font-size:10px;font-weight:700;letter-spacing:1px;color:rgba(255,255,255,0.38);font-family:"Noto Sans",sans-serif;text-transform:uppercase;';
+        s2Status.textContent = 'OFF';
+
+        var s2Btn = document.createElement('button');
+        s2Btn.style.cssText = btnStyle;
+        s2Btn.textContent = 'START';
+
+        function syncAsUi() {
+          var exp = globalThis.__ryuGifSkinExperiment;
+          var running = exp && exp.status && exp.status().running;
+          s2Btn.textContent = running ? 'STOP' : 'START';
+          s2Status.textContent = running ? ('ACTIVE · ' + (exp.status().frameCount || 0) + ' FRAMES') : 'OFF';
+          s2Status.style.color = running ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.38)';
+        }
+
+        s2Btn.addEventListener('click', function() {
+          var exp = globalThis.__ryuGifSkinExperiment;
+          if (!exp) { s2Status.textContent = 'UNAVAIL'; return; }
+          if (exp.status && exp.status().running) {
+            exp.stop();
+            syncAsUi();
+            return;
+          }
+          var albumUrl = s2Input.value.trim();
+          if (!albumUrl) { s2Status.textContent = 'ENTER URL'; return; }
+          var delayMs = parseInt(s2DelayInput.value, 10) || 100;
+          s2Btn.textContent = 'LOADING...';
+          s2Status.textContent = 'FETCHING';
+          s2Status.style.color = 'rgba(255,255,255,0.6)';
+          exp.startFromAlbum(albumUrl, delayMs).then(function() {
+            syncAsUi();
+          }).catch(function(err) {
+            console.error('[AnimatedSkin step2]', err);
+            s2Btn.textContent = 'START';
+            s2Status.textContent = 'ERROR';
+            s2Status.style.color = 'rgba(232,25,44,0.92)';
+          });
+        });
+
+        s2Row2.appendChild(s2Status);
+        s2Row2.appendChild(s2Btn);
+        asRow.appendChild(s2Row2);
+
+        content.appendChild(asRow);
+        syncAsUi();
+        return;
+      }
+
+      // favorite emote row: custom themed emote picker + key binding box
+      if (def.type === 'favoriteEmote') {
+        var feRow = document.createElement('div');
+        feRow.className = 'ryu-sp-row';
+        var feLbl = document.createElement('div');
+        feLbl.className = 'ryu-sp-label';
+        feLbl.textContent = 'Favorite Emote';
+        feRow.appendChild(feLbl);
+
+        var feCtrl = document.createElement('div');
+        feCtrl.className = 'ryu-sp-ctrl';
+        feCtrl.style.gap = '5px';
+
+        var feEmotes = (globalThis.__ryuDefaultEmotes || []);
+        var fePopup = null;
+
+        // Trigger button — shows current selection
+        var feTrigger = document.createElement('div');
+        feTrigger.style.cssText = 'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:5px;padding:0 8px;height:28px;min-width:52px;display:flex;align-items:center;justify-content:center;gap:5px;cursor:pointer;flex-shrink:0;user-select:none;transition:border-color 0.15s;';
+        feTrigger.title = 'Click to choose favorite emote';
+
+        var feTriggerArrow = document.createElement('span');
+        feTriggerArrow.textContent = '▾';
+        feTriggerArrow.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.35);flex-shrink:0;';
+
+        function feSyncTrigger() {
+          // clear inner content except arrow
+          while (feTrigger.firstChild) feTrigger.removeChild(feTrigger.firstChild);
+          var code = t.favoriteEmoteCode || '';
+          var em = feEmotes.filter(function(e) { return (e.type === 'gif' ? e.url : e.code) === code; })[0];
+          if (em) {
+            if (em.type === 'gif') {
+              var tImg = document.createElement('img');
+              tImg.src = em.url;
+              tImg.style.cssText = 'width:18px;height:18px;object-fit:contain;border-radius:2px;flex-shrink:0;';
+              feTrigger.appendChild(tImg);
+            } else {
+              var tSpan = document.createElement('span');
+              tSpan.textContent = em.label;
+              tSpan.style.cssText = 'font-size:16px;line-height:1;';
+              feTrigger.appendChild(tSpan);
+            }
+          } else {
+            var tNone = document.createElement('span');
+            tNone.textContent = '—';
+            tNone.style.cssText = 'font-size:12px;color:rgba(255,255,255,0.4);font-family:"Noto Sans",sans-serif;';
+            feTrigger.appendChild(tNone);
+          }
+          feTrigger.appendChild(feTriggerArrow);
+        }
+        feSyncTrigger();
+
+        function feClosePopup() {
+          if (fePopup) { fePopup.remove(); fePopup = null; }
+        }
+
+        function feOpenPopup() {
+          feClosePopup();
+          fePopup = document.createElement('div');
+          fePopup.style.cssText = [
+            'position:fixed;z-index:999999;',
+            'background:rgba(13,17,23,0.98);',
+            'border:1px solid rgba(255,255,255,0.10);',
+            'border-radius:8px;padding:5px;',
+            'overflow-y:auto;max-height:230px;min-width:190px;',
+            'box-shadow:0 8px 32px rgba(0,0,0,0.75);',
+            'display:flex;flex-direction:column;gap:1px;'
+          ].join('');
+          var rect = feTrigger.getBoundingClientRect();
+          fePopup.style.left = rect.left + 'px';
+          fePopup.style.top  = (rect.bottom + 4) + 'px';
+
+          // None option
+          var noneRow = document.createElement('div');
+          noneRow.style.cssText = 'padding:5px 9px;cursor:pointer;border-radius:5px;color:rgba(255,255,255,0.4);font-size:12px;font-family:"Noto Sans",sans-serif;transition:background 0.1s;';
+          noneRow.textContent = '— None';
+          noneRow.addEventListener('mouseenter', function() { noneRow.style.background = 'rgba(255,255,255,0.07)'; });
+          noneRow.addEventListener('mouseleave', function() { noneRow.style.background = 'transparent'; });
+          noneRow.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            saveT('favoriteEmoteCode', ''); t = loadT(); feSyncTrigger(); feClosePopup();
+          });
+          fePopup.appendChild(noneRow);
+
+          var curVal = t.favoriteEmoteCode || '';
+          feEmotes.forEach(function(em) {
+            var val = em.type === 'gif' ? em.url : em.code;
+            var isSel = val === curVal;
+            var optRow = document.createElement('div');
+            optRow.style.cssText = [
+              'display:flex;align-items:center;gap:8px;',
+              'padding:4px 9px;cursor:pointer;border-radius:5px;',
+              'transition:background 0.1s;',
+              isSel ? 'background:rgba(255,255,255,0.10);' : ''
+            ].join('');
+            if (em.type === 'gif') {
+              var oImg = document.createElement('img');
+              oImg.src = em.url;
+              oImg.style.cssText = 'width:24px;height:24px;object-fit:contain;border-radius:3px;flex-shrink:0;';
+              optRow.appendChild(oImg);
+            } else {
+              var oEmoji = document.createElement('span');
+              oEmoji.textContent = em.label;
+              oEmoji.style.cssText = 'font-size:20px;line-height:1;flex-shrink:0;width:24px;text-align:center;';
+              optRow.appendChild(oEmoji);
+            }
+            var oLbl = document.createElement('span');
+            oLbl.style.cssText = 'font-size:10px;color:rgba(255,255,255,0.45);font-family:"Noto Sans",sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;';
+            oLbl.textContent = em.label;
+            optRow.appendChild(oLbl);
+            optRow.addEventListener('mouseenter', function() { if (!isSel) optRow.style.background = 'rgba(255,255,255,0.07)'; });
+            optRow.addEventListener('mouseleave', function() { if (!isSel) optRow.style.background = 'transparent'; });
+            optRow.addEventListener('mousedown', function(e) {
+              e.preventDefault();
+              saveT('favoriteEmoteCode', val); t = loadT(); feSyncTrigger(); feClosePopup();
+            });
+            fePopup.appendChild(optRow);
+          });
+
+          document.body.appendChild(fePopup);
+
+          var outsideClose = function(e) {
+            if (fePopup && !fePopup.contains(e.target) && e.target !== feTrigger) {
+              feClosePopup();
+              document.removeEventListener('mousedown', outsideClose, true);
+            }
+          };
+          document.addEventListener('mousedown', outsideClose, true);
+        }
+
+        feTrigger.addEventListener('mouseenter', function() { feTrigger.style.borderColor = 'rgba(255,255,255,0.22)'; });
+        feTrigger.addEventListener('mouseleave', function() { feTrigger.style.borderColor = 'rgba(255,255,255,0.12)'; });
+        feTrigger.addEventListener('click', function() {
+          if (fePopup) { feClosePopup(); } else { feOpenPopup(); }
+        });
+
+        feCtrl.appendChild(feTrigger);
+
+        // key binding box (same pattern as hotkey type)
+        var feHkBox = document.createElement('div');
+        var curFeKey = t.hotkeyFavoriteEmote || '';
+        feHkBox.textContent = curFeKey || '—';
+        feHkBox.title = 'Click then press a key';
+        feHkBox.style.cssText = 'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:5px;padding:4px 10px;min-width:52px;text-align:center;cursor:pointer;font-size:11px;font-weight:700;color:rgba(255,255,255,0.82);letter-spacing:1px;font-family:"Noto Sans",sans-serif;user-select:none;transition:all 0.15s;flex-shrink:0;';
+
+        var _feListening = false;
+        feHkBox.addEventListener('click', function() {
+          if (_feListening) return;
+          _feListening = true;
+          feHkBox.textContent = '...';
+          feHkBox.style.borderColor = 'rgba(255,255,255,0.2)';
+          feHkBox.style.background = 'rgba(255,255,255,0.10)';
+
+          function onFeKey(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            _feListening = false;
+            document.removeEventListener('keydown', onFeKey, true);
+            document.removeEventListener('mousedown', onFeMouse, true);
+            var key = e.key.toUpperCase();
+            if (key === 'ESCAPE') {
+              feHkBox.textContent = t.hotkeyFavoriteEmote || '—';
+              feHkBox.style.borderColor = 'rgba(255,255,255,0.12)';
+              feHkBox.style.background = 'rgba(255,255,255,0.06)';
+              return;
+            }
+            var conflict = null;
+            document.querySelectorAll('.sm-row').forEach(function(row) {
+              var nameEl = row.querySelector('.sm-setting-name');
+              var bindEl = row.querySelector('.sm-control-input-box');
+              if (!nameEl || !bindEl) return;
+              var bindText = bindEl.textContent.trim().replace(/keyboard$/i, '').trim().toUpperCase();
+              if (bindText === key) conflict = nameEl.textContent.trim();
+            });
+            if (!conflict) {
+              var ryuHks = { hotkeyDisconnect: 'Disconnect', hotkeyEmote: 'Emote Panel', hotkeyHideFlags: 'Hide Flags', hotkeyDangerOverlay: 'Danger Overlay', hotkeyTeammateIndicator: 'Teammate Indicator', hotkeyMinimalMode: 'Minimal Mode', hotkeyMuteMic: 'Mute Mic', hotkeyCelebrate: 'Celebrate', hotkeyFastSpawn: 'Auto Spawn', hotkeyInfernoMacro: 'Inferno Macro', hotkeyTargetedFeed: 'Targeted Feed' };
+              var saved2 = loadT();
+              Object.keys(ryuHks).forEach(function(k) {
+                if (saved2[k] && saved2[k].toUpperCase() === key) conflict = 'RyuTheme: ' + ryuHks[k];
+              });
+            }
+            if (conflict) {
+              var popup2 = document.createElement('div');
+              popup2.style.cssText = 'position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);';
+              var popBox2 = document.createElement('div');
+              popBox2.style.cssText = 'background:#0d1117;border:1px solid rgba(232,25,44,0.4);border-radius:10px;padding:22px 26px;max-width:340px;text-align:center;font-family:"Noto Sans",sans-serif;box-shadow:0 0 30px rgba(232,25,44,0.2);';
+              var popIcon2 = document.createElement('div');
+              popIcon2.textContent = '⚠';
+              popIcon2.style.cssText = 'font-size:26px;margin-bottom:10px;color:#e8192c;';
+              var popMsg2 = document.createElement('div');
+              popMsg2.style.cssText = 'font-size:12px;font-weight:600;color:rgba(255,255,255,0.85);line-height:1.6;';
+              popMsg2.innerHTML = 'Hotkey <span style="color:rgba(255,255,255,0.92);font-weight:700;">' + key + '</span> is already being used for<br><span style="color:#e8192c;font-weight:700;">' + conflict + '</span>!<br><span style="color:rgba(255,255,255,0.5);font-size:11px;">Please choose another key.</span>';
+              var popOk2 = document.createElement('button');
+              popOk2.textContent = 'OK';
+              popOk2.style.cssText = 'margin-top:16px;padding:7px 28px;background:transparent;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:rgba(255,255,255,0.92);font-family:"Noto Sans",sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;cursor:pointer;';
+              popOk2.addEventListener('click', function() { popup2.remove(); });
+              popBox2.appendChild(popIcon2);
+              popBox2.appendChild(popMsg2);
+              popBox2.appendChild(popOk2);
+              popup2.appendChild(popBox2);
+              document.body.appendChild(popup2);
+              feHkBox.textContent = t.hotkeyFavoriteEmote || '—';
+              feHkBox.style.borderColor = 'rgba(255,255,255,0.12)';
+              feHkBox.style.background = 'rgba(255,255,255,0.06)';
+              return;
+            }
+            saveT('hotkeyFavoriteEmote', key);
+            t = loadT();
+            feHkBox.textContent = key;
+            feHkBox.style.borderColor = 'rgba(255,255,255,0.12)';
+            feHkBox.style.background = 'rgba(255,255,255,0.06)';
+          }
+
+          function onFeMouse(e) {
+            if (e.button === 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            _feListening = false;
+            document.removeEventListener('keydown', onFeKey, true);
+            document.removeEventListener('mousedown', onFeMouse, true);
+            var mouseLabel = e.button === 2 ? 'RIGHTCLICK' : e.button === 1 ? 'MIDDLECLICK' : 'MOUSE' + e.button;
+            saveT('hotkeyFavoriteEmote', mouseLabel);
+            t = loadT();
+            feHkBox.textContent = mouseLabel;
+            feHkBox.style.borderColor = 'rgba(255,255,255,0.16)';
+            feHkBox.style.background = 'rgba(255,255,255,0.08)';
+          }
+
+          document.addEventListener('keydown', onFeKey, true);
+          document.addEventListener('mousedown', onFeMouse, true);
+        });
+
+        var feHkClear = document.createElement('div');
+        feHkClear.textContent = '✕';
+        feHkClear.style.cssText = 'width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:rgba(255,255,255,0.3);font-size:10px;border-radius:3px;transition:all 0.15s;flex-shrink:0;';
+        feHkClear.addEventListener('mouseenter', function() { feHkClear.style.color = '#e8192c'; feHkClear.style.background = 'rgba(232,25,44,0.1)'; });
+        feHkClear.addEventListener('mouseleave', function() { feHkClear.style.color = 'rgba(255,255,255,0.3)'; feHkClear.style.background = 'transparent'; });
+        feHkClear.addEventListener('click', function() {
+          saveT('hotkeyFavoriteEmote', '');
+          t = loadT();
+          feHkBox.textContent = '—';
+          feHkBox.style.borderColor = 'rgba(255,255,255,0.12)';
+          feHkBox.style.background = 'rgba(255,255,255,0.06)';
+        });
+
+        var feHkWrap = document.createElement('div');
+        feHkWrap.style.cssText = 'display:flex;align-items:center;';
+        feHkWrap.appendChild(feHkBox);
+        feHkWrap.appendChild(feHkClear);
+        feCtrl.appendChild(feHkWrap);
+
+        feRow.appendChild(feCtrl);
+        content.appendChild(feRow);
         return;
       }
 
@@ -5410,7 +7211,7 @@
         var curKey = t[def.key] || def.def;
         hkBox.textContent = curKey || '\u2014';
         hkBox.title = 'Click then press a key';
-        hkBox.style.cssText = 'background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.2);border-radius:5px;padding:4px 14px;min-width:60px;text-align:center;cursor:pointer;font-size:11px;font-weight:700;color:rgba(34,211,238,0.8);letter-spacing:1px;font-family:"Noto Sans",sans-serif;user-select:none;transition:all 0.15s;';
+        hkBox.style.cssText = 'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:5px;padding:4px 14px;min-width:60px;text-align:center;cursor:pointer;font-size:11px;font-weight:700;color:rgba(255,255,255,0.82);letter-spacing:1px;font-family:"Noto Sans",sans-serif;user-select:none;transition:all 0.15s;';
 
         var _hkListening = false;
 
@@ -5418,8 +7219,8 @@
           if (_hkListening) return;
           _hkListening = true;
           hkBox.textContent = '...';
-          hkBox.style.borderColor = '#22d3ee';
-          hkBox.style.background = 'rgba(34,211,238,0.15)';
+          hkBox.style.borderColor = 'rgba(255,255,255,0.2)';
+          hkBox.style.background = 'rgba(255,255,255,0.10)';
 
           function onKey(e) {
             e.preventDefault();
@@ -5431,8 +7232,8 @@
             var key = e.key.toUpperCase();
             if (key === 'ESCAPE') {
               hkBox.textContent = t[def.key] || def.def || '\u2014';
-              hkBox.style.borderColor = 'rgba(34,211,238,0.2)';
-              hkBox.style.background = 'rgba(34,211,238,0.08)';
+              hkBox.style.borderColor = 'rgba(255,255,255,0.12)';
+              hkBox.style.background = 'rgba(255,255,255,0.06)';
               return;
             }
 
@@ -5450,7 +7251,7 @@
 
             // Also check our own RyuTheme hotkeys
             if (!conflict) {
-              var ryuHotkeys = { hotkeyDisconnect: 'Disconnect', hotkeyEmote: 'Emote Panel', hotkeyDangerOverlay: 'Danger Overlay', hotkeyMinimalMode: 'Minimal Mode', hotkeyFreecam: 'Freecam' };
+              var ryuHotkeys = { hotkeyDisconnect: 'Disconnect', hotkeyEmote: 'Emote Panel', hotkeyFavoriteEmote: 'Favorite Emote', hotkeyHideFlags: 'Hide Flags', hotkeyDangerOverlay: 'Danger Overlay', hotkeyTeammateIndicator: 'Teammate Indicator', hotkeyMinimalMode: 'Minimal Mode', hotkeyMuteMic: 'Mute Mic', hotkeyCelebrate: 'Celebrate', hotkeyFastSpawn: 'Auto Spawn', hotkeyInfernoMacro: 'Inferno Macro', hotkeyTargetedFeed: 'Targeted Feed' };
               var saved = loadT();
               Object.keys(ryuHotkeys).forEach(function(k) {
                 if (k !== def.key && saved[k] && saved[k].toUpperCase() === key) {
@@ -5469,10 +7270,10 @@
               popIcon.style.cssText = 'font-size:26px;margin-bottom:10px;color:#e8192c;';
               var popMsg = document.createElement('div');
               popMsg.style.cssText = 'font-size:12px;font-weight:600;color:rgba(255,255,255,0.85);line-height:1.6;';
-              popMsg.innerHTML = 'Hotkey <span style="color:#22d3ee;font-weight:700;">' + key + '</span> is already being used for<br><span style="color:#e8192c;font-weight:700;">' + conflict + '</span>!<br><span style="color:rgba(255,255,255,0.5);font-size:11px;">Please choose another key.</span>';
+              popMsg.innerHTML = 'Hotkey <span style="color:rgba(255,255,255,0.92);font-weight:700;">' + key + '</span> is already being used for<br><span style="color:#e8192c;font-weight:700;">' + conflict + '</span>!<br><span style="color:rgba(255,255,255,0.5);font-size:11px;">Please choose another key.</span>';
               var popOk = document.createElement('button');
               popOk.textContent = 'OK';
-              popOk.style.cssText = 'margin-top:16px;padding:7px 28px;background:transparent;border:1px solid rgba(34,211,238,0.3);border-radius:6px;color:#22d3ee;font-family:"Noto Sans",sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;cursor:pointer;';
+              popOk.style.cssText = 'margin-top:16px;padding:7px 28px;background:transparent;border:1px solid rgba(255,255,255,0.18);border-radius:6px;color:rgba(255,255,255,0.92);font-family:"Noto Sans",sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;cursor:pointer;';
               popOk.addEventListener('click', function() { popup.remove(); });
               popBox.appendChild(popIcon);
               popBox.appendChild(popMsg);
@@ -5480,20 +7281,20 @@
               popup.appendChild(popBox);
               document.body.appendChild(popup);
               hkBox.textContent = t[def.key] || def.def || '\u2014';
-              hkBox.style.borderColor = 'rgba(34,211,238,0.2)';
-              hkBox.style.background = 'rgba(34,211,238,0.08)';
+              hkBox.style.borderColor = 'rgba(255,255,255,0.16)';
+              hkBox.style.background = 'rgba(255,255,255,0.08)';
               return;
             }
 
             saveT(def.key, key);
             t = loadT();
             hkBox.textContent = key;
-            hkBox.style.borderColor = 'rgba(34,211,238,0.2)';
-            hkBox.style.background = 'rgba(34,211,238,0.08)';
+            hkBox.style.borderColor = 'rgba(255,255,255,0.12)';
+            hkBox.style.background = 'rgba(255,255,255,0.06)';
           }
 
           function onMouse(e) {
-            // ignore left click (button 0) — that's used to dismiss listening
+            // ignore left click (button 0) Ã¢â‚¬â€ that's used to dismiss listening
             if (e.button === 0) return;
             e.preventDefault();
             e.stopPropagation();
@@ -5505,8 +7306,8 @@
             saveT(def.key, mouseLabel);
             t = loadT();
             hkBox.textContent = mouseLabel;
-            hkBox.style.borderColor = 'rgba(34,211,238,0.2)';
-            hkBox.style.background = 'rgba(34,211,238,0.08)';
+            hkBox.style.borderColor = 'rgba(255,255,255,0.16)';
+            hkBox.style.background = 'rgba(255,255,255,0.08)';
           }
 
           document.addEventListener('keydown', onKey, true);
@@ -5515,7 +7316,7 @@
 
         hkCtrl.appendChild(hkBox);
 
-        // Clear button — removes the saved hotkey
+        // Clear button Ã¢â‚¬â€ removes the saved hotkey
         var hkClear = document.createElement('div');
         hkClear.textContent = '\u2715';
         hkClear.style.cssText = 'margin-left:5px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:rgba(255,255,255,0.3);font-size:10px;border-radius:3px;transition:all 0.15s;flex-shrink:0;';
@@ -5525,8 +7326,8 @@
           saveT(def.key, '');
           t = loadT();
           hkBox.textContent = '\u2014';
-          hkBox.style.borderColor = 'rgba(34,211,238,0.2)';
-          hkBox.style.background = 'rgba(34,211,238,0.08)';
+          hkBox.style.borderColor = 'rgba(255,255,255,0.12)';
+          hkBox.style.background = 'rgba(255,255,255,0.06)';
         });
 
         var hkWrap = document.createElement('div');
@@ -5540,14 +7341,14 @@
         return;
       }
 
-      // animation delay — toggle + marker slider, mirrors popup.js implementation
+      // animation delay Ã¢â‚¬â€ toggle + marker slider, mirrors popup.js implementation
       if (def.type === 'animSoften') {
         // toggle row
         var softenRow = document.createElement('div');
         softenRow.className = 'ryu-sp-row';
         var softenLbl = document.createElement('div');
         softenLbl.className = 'ryu-sp-label';
-        softenLbl.textContent = 'Animation Delay';
+        softenLbl.textContent = 'Custom Animation Delay';
         softenRow.appendChild(softenLbl);
         var softenCtrl = document.createElement('div');
         softenCtrl.className = 'ryu-sp-ctrl';
@@ -5561,7 +7362,9 @@
           var cur = softenTog.classList.contains('ryu-sp-toggle-on');
           softenTog.classList.toggle('ryu-sp-toggle-on', !cur);
           saveT('animSoftenOn', !cur);
-          if (globalThis.__Q && globalThis.__Q.ELEMENT_ANIMATION_SOFTENING) {
+          if (globalThis.__ryuSetAnimSoftenEnabled) {
+            globalThis.__ryuSetAnimSoftenEnabled(!cur);
+          } else if (globalThis.__Q && globalThis.__Q.ELEMENT_ANIMATION_SOFTENING) {
             globalThis.__Q.ELEMENT_ANIMATION_SOFTENING._5738 = !cur
               ? (loadT().animSoftenVal ?? 80)
               : 80;
@@ -5571,7 +7374,7 @@
         softenRow.appendChild(softenCtrl);
         content.appendChild(softenRow);
 
-        // marker slider row — range 0-350, markers at native min (80) and max (300)
+        // marker slider row Ã¢â‚¬â€ range 0-350, markers at native min (80) and max (300)
         var sliderWrap = document.createElement('div');
         sliderWrap.style.cssText = 'padding:4px 0 12px;';
         var sliderTop = document.createElement('div');
@@ -5602,7 +7405,7 @@
         fill.appendChild(thumb);
         track.appendChild(fill);
 
-        // marker labels — 80 = game min, 300 = game max
+        // marker labels Ã¢â‚¬â€ 80 = game min, 300 = game max
         var markerWrap = document.createElement('div');
         markerWrap.style.cssText = 'position:relative;height:18px;margin-top:2px;';
         [{value:80,label:'80 — min'},{value:300,label:'300 — max'}].forEach(function(m) {
@@ -5623,8 +7426,8 @@
           e.preventDefault();
         });
         track.addEventListener('dragstart', function(e) { e.preventDefault(); });
-        window.addEventListener('mousemove', function(e) { if (_softenDrag) applySoftenAt(e.clientX); });
-        window.addEventListener('mouseup', function() { _softenDrag = false; });
+        document.addEventListener('mousemove', function(e) { if (_softenDrag) applySoftenAt(e.clientX); }, true);
+        document.addEventListener('mouseup', function() { _softenDrag = false; }, true);
 
         function applySoftenAt(clientX) {
           var r = track.getBoundingClientRect();
@@ -5634,7 +7437,9 @@
           fill.style.width = (p * 100) + '%';
           sliderValDisp.textContent = newVal;
           saveT('animSoftenVal', newVal);
-          if (loadT().animSoftenOn && globalThis.__Q && globalThis.__Q.ELEMENT_ANIMATION_SOFTENING) {
+          if (loadT().animSoftenOn && globalThis.__ryuSetAnimSoftenValue) {
+            globalThis.__ryuSetAnimSoftenValue(newVal);
+          } else if (loadT().animSoftenOn && globalThis.__Q && globalThis.__Q.ELEMENT_ANIMATION_SOFTENING) {
             globalThis.__Q.ELEMENT_ANIMATION_SOFTENING._5738 = newVal;
           }
         }
@@ -5706,7 +7511,7 @@
           colorIn.style.cssText = 'position:absolute;opacity:0;width:0;height:0;pointer-events:none;';
           swatch.appendChild(colorIn);
           swatch.addEventListener('click', function(e) { e.stopPropagation(); colorIn.click(); });
-          colorIn.addEventListener('input', function() { swatch.style.background = colorIn.value; });
+          colorIn.addEventListener('input', function() { swatch.style.background = colorIn.value; saveT('sectorLabelColor', colorIn.value); });
           colorIn.addEventListener('change', function() { swatch.style.background = colorIn.value; saveT('sectorLabelColor', colorIn.value); });
           ctrl.appendChild(swatch);
           row.appendChild(ctrl);
@@ -5735,7 +7540,7 @@
           colorIn.style.cssText = 'position:absolute;opacity:0;width:0;height:0;pointer-events:none;';
           swatch.appendChild(colorIn);
           swatch.addEventListener('click', function(e) { e.stopPropagation(); colorIn.click(); });
-          colorIn.addEventListener('input', function() { swatch.style.background = colorIn.value; });
+          colorIn.addEventListener('input', function() { swatch.style.background = colorIn.value; saveT('sectorGridColor', colorIn.value); });
           colorIn.addEventListener('change', function() { swatch.style.background = colorIn.value; saveT('sectorGridColor', colorIn.value); });
           ctrl.appendChild(swatch);
           row.appendChild(ctrl);
@@ -5759,7 +7564,7 @@
           fdWrap.style.cssText = 'position:relative;';
           var fdBtn = document.createElement('div');
           var fdFontName = FONTS[curIdx] === 'Default' ? 'Noto Sans' : FONTS[curIdx];
-          fdBtn.style.cssText = 'background:#1c2128;border:1px solid rgba(34,211,238,0.2);border-radius:5px;color:rgba(255,255,255,0.85);font-size:12px;padding:5px 28px 5px 8px;cursor:pointer;min-width:120px;position:relative;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+          fdBtn.style.cssText = 'background:#1c2128;border:1px solid rgba(255,255,255,0.14);border-radius:5px;color:rgba(255,255,255,0.85);font-size:12px;padding:5px 28px 5px 8px;cursor:pointer;min-width:120px;position:relative;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
           fdBtn.style.fontFamily = '"' + fdFontName + '", sans-serif';
           fdBtn.textContent = FONTS[curIdx];
           var fdChev = document.createElement('div');
@@ -5767,15 +7572,15 @@
           fdChev.textContent = '▾';
           fdBtn.appendChild(fdChev);
           var fdDrop = document.createElement('div');
-          fdDrop.style.cssText = 'display:none;position:fixed;z-index:999999;background:#1c2128;border:1px solid rgba(34,211,238,0.2);border-radius:6px;overflow-y:auto;max-height:220px;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,0.6);';
+          fdDrop.style.cssText = 'display:none;position:fixed;z-index:999999;background:#1c2128;border:1px solid rgba(255,255,255,0.14);border-radius:6px;overflow-y:auto;max-height:220px;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,0.6);';
           FONTS.forEach(function(opt, i) {
             var fi = document.createElement('div');
             var fFamily = opt === 'Default' ? '"Noto Sans", sans-serif' : '"' + opt + '", sans-serif';
             fi.style.cssText = 'padding:7px 10px;cursor:pointer;font-size:13px;color:rgba(255,255,255,0.8);white-space:nowrap;transition:background 0.1s;';
             fi.style.fontFamily = fFamily;
             fi.textContent = opt;
-            if (i === curIdx) fi.style.color = '#22d3ee';
-            fi.addEventListener('mouseenter', function() { fi.style.background = 'rgba(34,211,238,0.08)'; });
+            if (i === curIdx) fi.style.color = 'rgba(255,255,255,0.96)';
+            fi.addEventListener('mouseenter', function() { fi.style.background = 'rgba(255,255,255,0.08)'; });
             fi.addEventListener('mouseleave', function() { fi.style.background = ''; });
             fi.addEventListener('click', function() {
               curIdx = i;
@@ -5783,7 +7588,7 @@
               fdBtn.childNodes[0].textContent = opt;
               fdDrop.style.display = 'none';
               fdDrop.querySelectorAll('div').forEach(function(d) { d.style.color = 'rgba(255,255,255,0.8)'; });
-              fi.style.color = '#22d3ee';
+              fi.style.color = 'rgba(255,255,255,0.96)';
               saveT('sectorFont', i);
             });
             fdDrop.appendChild(fi);
@@ -5792,16 +7597,23 @@
             e.stopPropagation();
             var isOpen = fdDrop.style.display !== 'none';
             document.querySelectorAll('.ryu-font-drop').forEach(function(d) { d.style.display = 'none'; });
+            closeOpenSettingsDropdownRows();
             if (!isOpen) {
               fdDrop.style.display = 'block';
+              setSettingsDropdownRowState(row, true);
               var r = fdBtn.getBoundingClientRect();
               fdDrop.style.left = r.left + 'px';
               fdDrop.style.top = (r.bottom + 2) + 'px';
               fdDrop.style.width = Math.max(r.width, 160) + 'px';
+            } else {
+              setSettingsDropdownRowState(row, false);
             }
           });
           fdDrop.className = 'ryu-font-drop';
-          document.addEventListener('click', function() { fdDrop.style.display = 'none'; });
+          document.addEventListener('click', function() {
+            fdDrop.style.display = 'none';
+            setSettingsDropdownRowState(row, false);
+          });
           fdWrap.appendChild(fdBtn);
           document.body.appendChild(fdDrop);
           ctrl.appendChild(fdWrap);
@@ -5816,7 +7628,475 @@
           _scOpen = !_scOpen;
           scSub.style.display = _scOpen ? 'block' : 'none';
           scChev.style.transform = _scOpen ? 'rotate(180deg)' : '';
-          scChev.style.color = _scOpen ? 'rgba(34,211,238,0.6)' : 'rgba(255,255,255,0.35)';
+          scChev.style.color = _scOpen ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.35)';
+        });
+
+        return;
+      }
+
+      if (def.type === 'agarModeExpand') {
+        var agarRow = document.createElement('div');
+        agarRow.className = 'ryu-sp-row';
+        agarRow.dataset.ryuSettingLabel = 'Agar.io Mode';
+        agarRow.dataset.ryuSubSettings = 'Agar.io Virus Agar.io Map Agar.io Dark Agar.io Chatbox Agar.io Leaderboard Agar.io Minimap';
+        var agarLbl = document.createElement('div');
+        agarLbl.className = 'ryu-sp-label';
+        agarLbl.textContent = 'Agar.io Mode';
+        agarRow.appendChild(agarLbl);
+        var agarCtrl = document.createElement('div');
+        agarCtrl.className = 'ryu-sp-ctrl';
+        agarCtrl.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        var agarEnabled = !!t.agarModeOn;
+        var agarTog = document.createElement('div');
+        agarTog.className = 'ryu-sp-toggle' + (agarEnabled ? ' ryu-sp-toggle-on' : '');
+        var agarDot = document.createElement('div');
+        agarDot.className = 'ryu-sp-toggle-dot';
+        agarTog.appendChild(agarDot);
+        var agarChev = document.createElement('div');
+        agarChev.style.cssText = 'width:16px;height:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:rgba(255,255,255,0.35);font-size:9px;transition:transform 0.2s;flex-shrink:0;';
+        agarChev.textContent = '\u25BC';
+        agarCtrl.appendChild(agarTog);
+        agarCtrl.appendChild(agarChev);
+        agarRow.appendChild(agarCtrl);
+        content.appendChild(agarRow);
+
+        var agarSub = document.createElement('div');
+        agarSub.style.cssText = 'display:none;padding:2px 0 6px 8px;border-left:1px solid rgba(255,255,255,0.07);margin-left:4px;';
+
+        function refreshAgarState() {
+          var at = loadT();
+          agarTog.classList.toggle('ryu-sp-toggle-on', !!at.agarModeOn);
+          agarSub.style.opacity = at.agarModeOn ? '1' : '0.45';
+        }
+
+        function afterAgarSave(key) {
+          refreshAgarState();
+          if ((key === 'minimapStyle' || key === 'minimapThemeOn' || key === 'agarMapOn' || key === 'agarMapModeOn' || key === 'agarDarkModeOn' || key === 'agarMinimapModeOn') && window.__ryuRefreshMinimapStyle) {
+            window.__ryuRefreshMinimapStyle();
+            setTimeout(window.__ryuRefreshMinimapStyle, 80);
+          }
+        }
+
+        function addAgarToggle(label, key, fallback) {
+          var subVal = t[key] !== undefined ? !!t[key] : fallback;
+          if (key === 'agarDarkModeOn') {
+            var darkMirror = localStorage.getItem('ryuAgarMapDark');
+            if (darkMirror === '1' || darkMirror === '0') subVal = darkMirror === '1';
+          }
+          var subRow = document.createElement('div');
+          subRow.className = 'ryu-sp-row';
+          subRow.dataset.ryuSettingLabel = label;
+          subRow.style.cssText = 'padding:4px 0;min-height:28px;';
+          var subLbl = document.createElement('div');
+          subLbl.className = 'ryu-sp-label';
+          subLbl.style.fontSize = '11px';
+          subLbl.textContent = label;
+          subRow.appendChild(subLbl);
+          var subCtrl = document.createElement('div');
+          subCtrl.className = 'ryu-sp-ctrl';
+          var subTog = document.createElement('div');
+          subTog.className = 'ryu-sp-toggle' + (subVal ? ' ryu-sp-toggle-on' : '');
+          var subDot = document.createElement('div');
+          subDot.className = 'ryu-sp-toggle-dot';
+          subTog.appendChild(subDot);
+          subTog.addEventListener('click', function() {
+            var cur = subTog.classList.contains('ryu-sp-toggle-on');
+            subTog.classList.toggle('ryu-sp-toggle-on', !cur);
+            saveT(key, !cur);
+            afterAgarSave(key);
+          });
+          subCtrl.appendChild(subTog);
+          subRow.appendChild(subCtrl);
+          agarSub.appendChild(subRow);
+        }
+
+        function addAgarMapToggle() {
+          var mapOn = t.agarMapModeOn !== undefined ? !!t.agarMapModeOn : false;
+
+          var subRow = document.createElement('div');
+          subRow.className = 'ryu-sp-row';
+          subRow.dataset.ryuSettingLabel = 'Agar.io Map';
+          subRow.style.cssText = 'padding:4px 0;min-height:28px;';
+
+          var subLbl = document.createElement('div');
+          subLbl.className = 'ryu-sp-label';
+          subLbl.style.cssText = 'font-size:11px;';
+          subLbl.textContent = 'Agar.io Map';
+          subRow.appendChild(subLbl);
+
+          var subCtrl = document.createElement('div');
+          subCtrl.className = 'ryu-sp-ctrl';
+          var subTog = document.createElement('div');
+          subTog.className = 'ryu-sp-toggle' + (mapOn ? ' ryu-sp-toggle-on' : '');
+          var subDot = document.createElement('div');
+          subDot.className = 'ryu-sp-toggle-dot';
+          subTog.appendChild(subDot);
+          subTog.addEventListener('click', function() {
+            var cur = subTog.classList.contains('ryu-sp-toggle-on');
+            subTog.classList.toggle('ryu-sp-toggle-on', !cur);
+            saveT('agarMapModeOn', !cur);
+            afterAgarSave('agarMapModeOn');
+          });
+          subCtrl.appendChild(subTog);
+          subRow.appendChild(subCtrl);
+          agarSub.appendChild(subRow);
+        }
+
+        function addAgarStyleToggle(label, isOnFn, onChanges, offChanges, refreshKey) {
+          var styleOn = isOnFn(t);
+          var subRow = document.createElement('div');
+          subRow.className = 'ryu-sp-row';
+          subRow.dataset.ryuSettingLabel = label;
+          subRow.style.cssText = 'padding:4px 0;min-height:28px;';
+          var subLbl = document.createElement('div');
+          subLbl.className = 'ryu-sp-label';
+          subLbl.style.fontSize = '11px';
+          subLbl.textContent = label;
+          subRow.appendChild(subLbl);
+          var subCtrl = document.createElement('div');
+          subCtrl.className = 'ryu-sp-ctrl';
+          var subTog = document.createElement('div');
+          subTog.className = 'ryu-sp-toggle' + (styleOn ? ' ryu-sp-toggle-on' : '');
+          var subDot = document.createElement('div');
+          subDot.className = 'ryu-sp-toggle-dot';
+          subTog.appendChild(subDot);
+          subTog.addEventListener('click', function() {
+            var cur = subTog.classList.contains('ryu-sp-toggle-on');
+            var nextTheme = loadT();
+            nextTheme[refreshKey] = !cur;
+            localStorage.setItem('ryuTheme', JSON.stringify(nextTheme));
+            subTog.classList.toggle('ryu-sp-toggle-on', !cur);
+            syncAgarModeState();
+            if (globalThis.__ryuRefreshAll) globalThis.__ryuRefreshAll();
+            afterAgarSave(refreshKey || '');
+          });
+          subCtrl.appendChild(subTog);
+          subRow.appendChild(subCtrl);
+          agarSub.appendChild(subRow);
+        }
+
+        agarTog.addEventListener('click', function() {
+          var cur = agarTog.classList.contains('ryu-sp-toggle-on');
+          agarTog.classList.toggle('ryu-sp-toggle-on', !cur);
+          saveT('agarModeOn', !cur);
+          afterAgarSave('minimapStyle');
+        });
+
+        addAgarToggle('Agar.io Virus', 'agarVirusModeOn', false);
+        addAgarMapToggle();
+        addAgarToggle('Agar.io Dark', 'agarDarkModeOn', false);
+        addAgarStyleToggle('Agar.io Chatbox', function(at) {
+          return !!at.agarChatboxModeOn;
+        }, null, null, 'agarChatboxModeOn');
+        addAgarStyleToggle('Agar.io Leaderboard', function(at) {
+          return !!at.agarLeaderboardModeOn;
+        }, null, null, 'agarLeaderboardModeOn');
+        addAgarStyleToggle('Agar.io Minimap', function(at) {
+          return !!at.agarMinimapModeOn;
+        }, null, null, 'agarMinimapModeOn');
+        refreshAgarState();
+
+        content.appendChild(agarSub);
+
+        var _agarOpen = false;
+        agarChev.addEventListener('click', function() {
+          _agarOpen = !_agarOpen;
+          agarSub.style.display = _agarOpen ? 'block' : 'none';
+          agarChev.style.transform = _agarOpen ? 'rotate(180deg)' : '';
+          agarChev.style.color = _agarOpen ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.35)';
+        });
+
+        return;
+      }
+
+      if (def.type === 'cellCosmeticExpand') {
+        var linkedGroupName = def.label === 'Name Color'
+          ? 'name-color-group'
+          : (def.label === 'Mass Color' ? 'mass-color-group' : '');
+        var cxRow = document.createElement('div');
+        cxRow.className = 'ryu-sp-row';
+        cxRow.dataset.ryuSettingLabel = def.label || '';
+        cxRow.dataset.ryuSubSettings = def.subSettings || '';
+        if (linkedGroupName) cxRow.dataset.ryuLinkedGroup = linkedGroupName;
+        var cxLbl = document.createElement('div');
+        cxLbl.className = 'ryu-sp-label';
+        cxLbl.textContent = def.label;
+        cxRow.appendChild(cxLbl);
+        var cxCtrl = document.createElement('div');
+        cxCtrl.className = 'ryu-sp-ctrl';
+        cxCtrl.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        var cxPrimary = def.control || null;
+        if (cxPrimary && cxPrimary.type === 'color') {
+          var cxColor = t[cxPrimary.key] || cxPrimary.def;
+          var cxSwatch = document.createElement('div');
+          cxSwatch.className = 'ryu-sp-swatch';
+          cxSwatch.style.background = cxColor;
+          cxSwatch.style.position = 'relative';
+          var cxColorIn = document.createElement('input');
+          cxColorIn.type = 'color';
+          cxColorIn.value = cxColor;
+          cxColorIn.style.cssText = 'position:absolute;opacity:0;width:0;height:0;pointer-events:none;';
+          cxSwatch.appendChild(cxColorIn);
+          cxSwatch.addEventListener('click', function(e) { e.stopPropagation(); cxColorIn.click(); });
+          cxColorIn.addEventListener('input', function() {
+            cxSwatch.style.background = cxColorIn.value;
+            saveT(cxPrimary.key, cxColorIn.value);
+            afterCellSettingSave(cxPrimary.key, cxColorIn.value);
+          });
+          cxColorIn.addEventListener('change', function() {
+            cxSwatch.style.background = cxColorIn.value;
+            saveT(cxPrimary.key, cxColorIn.value);
+            afterCellSettingSave(cxPrimary.key, cxColorIn.value);
+          });
+          cxCtrl.appendChild(cxSwatch);
+        } else if (cxPrimary && cxPrimary.type === 'toggle') {
+          var cxVal = t[cxPrimary.key] !== undefined ? !!t[cxPrimary.key] : cxPrimary.def;
+          var cxTog = document.createElement('div');
+          cxTog.className = 'ryu-sp-toggle' + (cxVal ? ' ryu-sp-toggle-on' : '');
+          var cxDot = document.createElement('div');
+          cxDot.className = 'ryu-sp-toggle-dot';
+          cxTog.appendChild(cxDot);
+          cxTog.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var cur = cxTog.classList.contains('ryu-sp-toggle-on');
+            cxTog.classList.toggle('ryu-sp-toggle-on', !cur);
+            saveT(cxPrimary.key, !cur);
+            afterCellSettingSave(cxPrimary.key, !cur);
+          });
+          cxCtrl.appendChild(cxTog);
+        }
+        var cxChev = document.createElement('div');
+        cxChev.style.cssText = 'width:16px;height:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:rgba(255,255,255,0.35);font-size:9px;transition:transform 0.2s;flex-shrink:0;';
+        cxChev.textContent = '\u25BC';
+        cxCtrl.appendChild(cxChev);
+        cxRow.appendChild(cxCtrl);
+        content.appendChild(cxRow);
+
+        var cxSub = document.createElement('div');
+        cxSub.className = 'ryu-sp-subgroup';
+        cxSub.style.cssText = 'display:none;padding:2px 0 6px 8px;border-left:1px solid rgba(255,255,255,0.07);margin-left:4px;';
+        if (linkedGroupName) cxSub.dataset.ryuLinkedGroup = linkedGroupName;
+
+        function afterCellSettingSave(key, value) {
+          if (key === 'color') {
+            var nameHex = parseInt(String(value).replace('#',''), 16);
+            globalThis.__ryuNameTint = nameHex === 0 ? 0x010101 : nameHex;
+          } else if (key === 'massColor') {
+            var massHex = parseInt(String(value).replace('#',''), 16);
+            globalThis.__ryuMassTint = massHex === 0 ? 0x010101 : massHex;
+            var mt = loadT();
+            if (mt.massStrokeOn === false || (mt.massStroke && mt.massStroke.toLowerCase() !== '#000000')) {
+              if (!globalThis.__ryuRefreshMassSettings) {
+                if (window.__ryuRedrawFont) window.__ryuRedrawFont((mt.massFont !== undefined ? mt.massFont : 0));
+                if (window.__ryuRedrawMass) window.__ryuRedrawMass();
+              }
+            }
+          } else if (key === 'nameStroke' || key === 'nameStrokeOn' || key === 'nameStrokeWidth') {
+            if (globalThis.__ryuRefreshNameSettings) globalThis.__ryuRefreshNameSettings();
+          } else if (key === 'massStroke' || key === 'massStrokeOn' || key === 'massStrokeWidth') {
+            if (!globalThis.__ryuRefreshMassSettings) {
+              if (window.__ryuRedrawFont) window.__ryuRedrawFont((loadT().massFont !== undefined ? loadT().massFont : 0));
+              if (window.__ryuRedrawMass) window.__ryuRedrawMass();
+            }
+          } else if (key === 'shortMassStroke' || key === 'shortMassStrokeOn') {
+          } else if (key === 'fontIndex' || key === 'boldName') {
+            if (globalThis.__ryuRefreshNameSettings) globalThis.__ryuRefreshNameSettings();
+          } else if (key === 'massFont') {
+            if (!globalThis.__ryuRefreshMassSettings) {
+              if (window.__ryuRedrawFont) window.__ryuRedrawFont(value);
+              if (window.__ryuRedrawMass) window.__ryuRedrawMass();
+            }
+          }
+        }
+
+        function refreshCellSubDisabledState() {
+          var liveTheme = loadT();
+          cxSub.querySelectorAll('.ryu-sp-row[data-ryu-parent-toggle]').forEach(function(depRow) {
+            var toggleKey = depRow.dataset.ryuParentToggle;
+            var enabled = !!liveTheme[toggleKey];
+            depRow.classList.toggle('ryu-sp-disabled', !enabled);
+          });
+        }
+
+        function addCellSub(sd) {
+          var subRow = document.createElement('div');
+          subRow.className = 'ryu-sp-row';
+          subRow.dataset.ryuSettingLabel = sd.label || '';
+          if (sd.dependsOnToggle) subRow.dataset.ryuParentToggle = sd.dependsOnToggle;
+          subRow.style.cssText = 'padding:4px 0;min-height:28px;';
+          var subLbl = document.createElement('div');
+          subLbl.className = 'ryu-sp-label';
+          subLbl.style.fontSize = '11px';
+          subLbl.textContent = sd.label;
+          subRow.appendChild(subLbl);
+          var subCtrl = document.createElement('div');
+          subCtrl.className = 'ryu-sp-ctrl';
+
+          if (sd.type === 'toggle') {
+            var subVal = t[sd.key] !== undefined ? !!t[sd.key] : sd.def;
+            var subTog = document.createElement('div');
+            subTog.className = 'ryu-sp-toggle' + (subVal ? ' ryu-sp-toggle-on' : '');
+            var subDot = document.createElement('div');
+            subDot.className = 'ryu-sp-toggle-dot';
+            subTog.appendChild(subDot);
+            subTog.addEventListener('click', function() {
+              var cur = subTog.classList.contains('ryu-sp-toggle-on');
+              subTog.classList.toggle('ryu-sp-toggle-on', !cur);
+              saveT(sd.key, !cur);
+              afterCellSettingSave(sd.key, !cur);
+              refreshCellSubDisabledState();
+            });
+            subCtrl.appendChild(subTog);
+          } else if (sd.type === 'color') {
+            var curColor = t[sd.key] || sd.def;
+            var swatch = document.createElement('div');
+            swatch.className = 'ryu-sp-swatch';
+            swatch.style.background = curColor;
+            swatch.style.position = 'relative';
+            var colorIn = document.createElement('input');
+            colorIn.type = 'color';
+            colorIn.value = curColor;
+            colorIn.style.cssText = 'position:absolute;opacity:0;width:0;height:0;pointer-events:none;';
+            swatch.appendChild(colorIn);
+            swatch.addEventListener('click', function(e) { e.stopPropagation(); colorIn.click(); });
+            colorIn.addEventListener('input', function() {
+              swatch.style.background = colorIn.value;
+              saveT(sd.key, colorIn.value);
+              afterCellSettingSave(sd.key, colorIn.value);
+            });
+            colorIn.addEventListener('change', function() {
+              swatch.style.background = colorIn.value;
+              saveT(sd.key, colorIn.value);
+              afterCellSettingSave(sd.key, colorIn.value);
+            });
+            subCtrl.appendChild(swatch);
+          } else if (sd.type === 'select') {
+            var curIdx = parseInt(t[sd.key] !== undefined ? t[sd.key] : sd.def, 10);
+            if (isNaN(curIdx)) curIdx = sd.def || 0;
+            var sel = document.createElement('select');
+            sel.style.cssText = 'background:#1c2128;border:1px solid rgba(255,255,255,0.14);border-radius:5px;color:rgba(255,255,255,0.7);font-family:"Noto Sans",sans-serif;font-size:11px;padding:5px 8px;outline:none;cursor:pointer;max-width:150px;';
+            sel.addEventListener('focus', function() { setSettingsDropdownRowState(subRow, true); });
+            sel.addEventListener('blur', function() { setSettingsDropdownRowState(subRow, false); });
+            sd.options.forEach(function(opt, i) {
+              var o = document.createElement('option');
+              o.value = i;
+              o.textContent = opt;
+              if (i === curIdx) o.selected = true;
+              sel.appendChild(o);
+            });
+            sel.addEventListener('change', function() {
+              var idx = parseInt(sel.value, 10);
+              saveT(sd.key, idx);
+              afterCellSettingSave(sd.key, idx);
+              refreshCellSubDisabledState();
+            });
+            subCtrl.appendChild(sel);
+          } else if (sd.type === 'fontupdate') {
+            var fuBtn = document.createElement('button');
+            fuBtn.textContent = 'Update';
+            fuBtn.style.cssText = 'background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.16);border-radius:5px;color:rgba(255,255,255,0.92);font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;padding:4px 10px;cursor:pointer;letter-spacing:0.5px;';
+            fuBtn.addEventListener('click', function() {
+              if (globalThis.__ryuForceAtlasClear) globalThis.__ryuForceAtlasClear();
+              fuBtn.textContent = 'Done';
+              setTimeout(function() { fuBtn.textContent = 'Update'; }, 1500);
+            });
+            subCtrl.appendChild(fuBtn);
+          } else if (sd.type === 'scaleslider') {
+            var ssRaw = t[sd.key] !== undefined ? t[sd.key] : sd.def;
+            var ssVal = ssRaw > 10 ? ssRaw : Math.round(ssRaw * 100);
+            var ssWrap = document.createElement('div');
+            ssWrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+            var ssTrack = document.createElement('div');
+            ssTrack.className = 'ryu-sp-track';
+            var ssFill = document.createElement('div');
+            ssFill.className = 'ryu-sp-fill';
+            ssFill.style.width = (((ssVal - sd.min) / (sd.max - sd.min)) * 100) + '%';
+            var ssThumb = document.createElement('div');
+            ssThumb.className = 'ryu-sp-thumb';
+            ssFill.appendChild(ssThumb);
+            ssTrack.appendChild(ssFill);
+            var ssDisp = document.createElement('div');
+            ssDisp.className = 'ryu-sp-val';
+            ssDisp.textContent = ssVal + '%';
+            var ssDrag = false;
+            ssTrack.addEventListener('mousedown', function(e) {
+              ssDrag = true;
+              applyCellScale(e.clientX);
+              e.preventDefault();
+            });
+            ssTrack.addEventListener('dragstart', function(e) { e.preventDefault(); });
+            document.addEventListener('mousemove', function(e) { if (ssDrag) applyCellScale(e.clientX); }, true);
+            document.addEventListener('mouseup', function() { ssDrag = false; }, true);
+            function applyCellScale(clientX) {
+              var r = ssTrack.getBoundingClientRect();
+              if (!r.width) return;
+              var p = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+              var steps = Math.round(p * (sd.max - sd.min) / sd.step);
+              var newVal = Math.max(sd.min, Math.min(sd.max, sd.min + steps * sd.step));
+              ssFill.style.width = ((newVal - sd.min) / (sd.max - sd.min) * 100) + '%';
+              ssDisp.textContent = newVal + '%';
+              saveT(sd.key, newVal / 100);
+              afterCellSettingSave(sd.key, newVal / 100);
+              refreshCellSubDisabledState();
+            }
+            ssWrap.appendChild(ssTrack);
+            ssWrap.appendChild(ssDisp);
+            subCtrl.appendChild(ssWrap);
+          } else if (sd.type === 'slider') {
+            var slVal = t[sd.key] !== undefined ? t[sd.key] : sd.def;
+            var slWrap = document.createElement('div');
+            slWrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+            var slTrack = document.createElement('div');
+            slTrack.className = 'ryu-sp-track';
+            var slFill = document.createElement('div');
+            slFill.className = 'ryu-sp-fill';
+            slFill.style.width = (((slVal - sd.min) / (sd.max - sd.min)) * 100) + '%';
+            var slThumb = document.createElement('div');
+            slThumb.className = 'ryu-sp-thumb';
+            slFill.appendChild(slThumb);
+            slTrack.appendChild(slFill);
+            var slDisp = document.createElement('div');
+            slDisp.className = 'ryu-sp-val';
+            slDisp.textContent = slVal;
+            var slDrag = false;
+            slTrack.addEventListener('mousedown', function(e) {
+              slDrag = true;
+              applyCellSlider(e.clientX);
+              e.preventDefault();
+            });
+            slTrack.addEventListener('dragstart', function(e) { e.preventDefault(); });
+            document.addEventListener('mousemove', function(e) { if (slDrag) applyCellSlider(e.clientX); }, true);
+            document.addEventListener('mouseup', function() { slDrag = false; }, true);
+            function applyCellSlider(clientX) {
+              var r = slTrack.getBoundingClientRect();
+              if (!r.width) return;
+              var p = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+              var newVal = Math.round(sd.min + p * (sd.max - sd.min));
+              slFill.style.width = ((newVal - sd.min) / (sd.max - sd.min) * 100) + '%';
+              slDisp.textContent = newVal;
+              saveT(sd.key, newVal);
+              afterCellSettingSave(sd.key, newVal);
+              refreshCellSubDisabledState();
+            }
+            slWrap.appendChild(slTrack);
+            slWrap.appendChild(slDisp);
+            subCtrl.appendChild(slWrap);
+          }
+
+          subRow.appendChild(subCtrl);
+          cxSub.appendChild(subRow);
+        }
+
+        (def.children || []).forEach(addCellSub);
+        refreshCellSubDisabledState();
+        content.appendChild(cxSub);
+
+        var _cxOpen = false;
+        cxChev.addEventListener('click', function() {
+          _cxOpen = !_cxOpen;
+          cxSub.style.display = _cxOpen ? 'block' : 'none';
+          cxChev.style.transform = _cxOpen ? 'rotate(180deg)' : '';
+          cxChev.style.color = _cxOpen ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.35)';
         });
 
         return;
@@ -5902,7 +8182,7 @@
           _mmOpen = !_mmOpen;
           mmSub.style.display = _mmOpen ? 'block' : 'none';
           mmChev.style.transform = _mmOpen ? 'rotate(180deg)' : '';
-          mmChev.style.color = _mmOpen ? 'rgba(34,211,238,0.6)' : 'rgba(255,255,255,0.35)';
+          mmChev.style.color = _mmOpen ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.35)';
         });
 
         return;
@@ -6010,7 +8290,7 @@
           pEmojiTog.classList.toggle('ryu-sp-toggle-on', emojiOn && !imgurOn);
           pImgurTog.classList.toggle('ryu-sp-toggle-on', imgurOn);
           pState.textContent = imgurOn ? 'Imgur' : (emojiOn ? 'Emoji' : 'Off');
-          pState.style.color = imgurOn ? '#22d3ee' : (emojiOn ? 'rgba(34,211,238,0.72)' : 'rgba(255,255,255,0.35)');
+          pState.style.color = imgurOn ? 'rgba(255,255,255,0.95)' : (emojiOn ? 'rgba(255,255,255,0.72)' : 'rgba(255,255,255,0.35)');
         }
 
         refreshPelletControls();
@@ -6021,14 +8301,14 @@
           _pOpen = !_pOpen;
           pSub.style.display = _pOpen ? 'block' : 'none';
           pChev.style.transform = _pOpen ? 'rotate(180deg)' : '';
-          pChev.style.color = _pOpen ? 'rgba(34,211,238,0.6)' : 'rgba(255,255,255,0.35)';
+          pChev.style.color = _pOpen ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.35)';
         });
 
         return;
       }
 
       if (def.type === 'teamColorExpand') {
-        var tcColors = JSON.parse(localStorage.getItem('ryuTeamColors') || '{}');
+        var tcColors = {};
 
         var tcRow = document.createElement('div');
         tcRow.className = 'ryu-sp-row';
@@ -6040,9 +8320,22 @@
         tcCtrl.className = 'ryu-sp-ctrl';
         tcCtrl.style.cssText = 'display:flex;align-items:center;gap:6px;';
 
+        var tcTog = document.createElement('div');
+        tcTog.className = 'ryu-sp-toggle' + (t.teamCellColorsOn ? ' ryu-sp-toggle-on' : '');
+        var tcDot = document.createElement('div');
+        tcDot.className = 'ryu-sp-toggle-dot';
+        tcTog.appendChild(tcDot);
+        tcTog.addEventListener('click', function() {
+          var cur = tcTog.classList.contains('ryu-sp-toggle-on');
+          tcTog.classList.toggle('ryu-sp-toggle-on', !cur);
+          saveT('teamCellColorsOn', !cur);
+          if (globalThis.__ryuRefreshTeamCellColors) globalThis.__ryuRefreshTeamCellColors();
+        });
+
         var tcChev = document.createElement('div');
         tcChev.style.cssText = 'width:16px;height:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:rgba(255,255,255,0.35);font-size:9px;transition:transform 0.2s;flex-shrink:0;';
         tcChev.textContent = '▼';
+        tcCtrl.appendChild(tcTog);
         tcCtrl.appendChild(tcChev);
         tcRow.appendChild(tcCtrl);
         content.appendChild(tcRow);
@@ -6052,6 +8345,41 @@
 
         function buildTeamColorList() {
           tcSub.innerHTML = '';
+          var colorRow = document.createElement('div');
+          colorRow.className = 'ryu-sp-row';
+          colorRow.style.cssText = 'padding:4px 0;min-height:28px;';
+          var colorLbl = document.createElement('div');
+          colorLbl.className = 'ryu-sp-label';
+          colorLbl.style.fontSize = '11px';
+          colorLbl.textContent = 'Team Color';
+          colorRow.appendChild(colorLbl);
+          var colorCtrl = document.createElement('div');
+          colorCtrl.className = 'ryu-sp-ctrl';
+          var swatch = document.createElement('div');
+          swatch.className = 'ryu-sp-swatch';
+          var curTeamColor = loadT().teamCellColor || '#ff69b4';
+          swatch.style.background = curTeamColor;
+          swatch.style.position = 'relative';
+          var colorIn = document.createElement('input');
+          colorIn.type = 'color';
+          colorIn.value = curTeamColor;
+          colorIn.style.cssText = 'position:absolute;opacity:0;width:0;height:0;pointer-events:none;';
+          swatch.appendChild(colorIn);
+          swatch.addEventListener('click', function(e) { e.stopPropagation(); colorIn.click(); });
+          colorIn.addEventListener('input', function() {
+            swatch.style.background = colorIn.value;
+            saveT('teamCellColor', colorIn.value);
+            if (globalThis.__ryuRefreshTeamCellColors) globalThis.__ryuRefreshTeamCellColors();
+          });
+          colorIn.addEventListener('change', function() {
+            swatch.style.background = colorIn.value;
+            saveT('teamCellColor', colorIn.value);
+            if (globalThis.__ryuRefreshTeamCellColors) globalThis.__ryuRefreshTeamCellColors();
+          });
+          colorCtrl.appendChild(swatch);
+          colorRow.appendChild(colorCtrl);
+          tcSub.appendChild(colorRow);
+          return;
           var myTag = window.__Be && window.__Be._1059 ? window.__Be._1059._9067 : '';
           var players = [];
           if (myTag && window.__ne && window.__ne._4221) {
@@ -6087,8 +8415,6 @@
               pInput.style.cssText = 'width:28px;height:20px;border:none;background:none;cursor:pointer;padding:0;';
               pInput.addEventListener('input', function() {
                 tcColors[name] = pInput.value;
-                localStorage.setItem('ryuTeamColors', JSON.stringify(tcColors));
-                if (window.__ryuTeamColors) window.__ryuTeamColors[name] = pInput.value;
               });
               pCtrl.appendChild(pInput);
               pRow.appendChild(pCtrl);
@@ -6100,7 +8426,7 @@
           var refRow = document.createElement('div');
           refRow.style.cssText = 'padding:4px 0;';
           var refBtn = document.createElement('div');
-          refBtn.style.cssText = 'font-size:10px;color:rgba(34,211,238,0.7);cursor:pointer;';
+          refBtn.style.cssText = 'font-size:10px;color:rgba(255,255,255,0.72);cursor:pointer;';
           refBtn.textContent = '↺ Refresh members';
           refBtn.addEventListener('click', buildTeamColorList);
           refRow.appendChild(refBtn);
@@ -6116,13 +8442,14 @@
           if (_tcOpen) buildTeamColorList();
           tcSub.style.display = _tcOpen ? 'block' : 'none';
           tcChev.style.transform = _tcOpen ? 'rotate(180deg)' : '';
-          tcChev.style.color = _tcOpen ? 'rgba(34,211,238,0.6)' : 'rgba(255,255,255,0.35)';
+          tcChev.style.color = _tcOpen ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.35)';
         });
 
         return;
       }
       var row = document.createElement('div');
       row.className = 'ryu-sp-row';
+      row.dataset.ryuSettingLabel = def.label || '';
       var lbl = document.createElement('div');
       lbl.className = 'ryu-sp-label';
       lbl.textContent = def.label;
@@ -6181,44 +8508,64 @@
         inp.addEventListener('input', function() { saveT(def.key, inp.value); });
         ctrl.appendChild(inp);
 
-      } else if (def.type === 'teamtag') {
-        var ttWrap = document.createElement('div');
-        ttWrap.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%;';
-        var ttInp = document.createElement('input');
-        ttInp.className = 'ryu-sp-input';
-        ttInp.style.flex = '1';
-        ttInp.maxLength = 10;
-        ttInp.placeholder = 'e.g. LOL';
-        var _ryuTagEl = document.getElementById('ryu-tag-input');
-        var _nativeTagEl = document.getElementById('team-input');
-        ttInp.value = (_ryuTagEl && _ryuTagEl.value) || (_nativeTagEl && _nativeTagEl.value) || '';
-        var ttBtn = document.createElement('button');
-        ttBtn.textContent = 'Set';
-        ttBtn.style.cssText = 'background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.25);border-radius:5px;color:#22d3ee;font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;padding:4px 10px;cursor:pointer;flex-shrink:0;letter-spacing:0.5px;';
-        ttBtn.addEventListener('mouseenter', function() { ttBtn.style.background = 'rgba(34,211,238,0.16)'; });
-        ttBtn.addEventListener('mouseleave', function() { ttBtn.style.background = 'rgba(34,211,238,0.08)'; });
-        function applyTeamTag(val) {
-          if (globalThis.__ryuSetTag) globalThis.__ryuSetTag(val);
-          var nte = document.getElementById('team-input');
-          var rte = document.getElementById('ryu-tag-input');
-          if (nte) {
-            nte.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
-            nte.value = val;
-            nte.dispatchEvent(new Event('input',  { bubbles: true }));
-            nte.dispatchEvent(new Event('change', { bubbles: true }));
-            nte.dispatchEvent(new FocusEvent('blur',   { bubbles: true }));
+      } else if (def.type === 'actionButton') {
+        var actionBtn = document.createElement('button');
+        actionBtn.textContent = def.text || 'Run';
+        actionBtn.style.cssText = 'background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.16);border-radius:5px;color:rgba(255,255,255,0.92);font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;padding:4px 10px;cursor:pointer;flex-shrink:0;letter-spacing:0.5px;';
+        actionBtn.addEventListener('mouseenter', function() { actionBtn.style.background = 'rgba(255,255,255,0.14)'; });
+        actionBtn.addEventListener('mouseleave', function() { actionBtn.style.background = 'rgba(255,255,255,0.08)'; });
+        actionBtn.addEventListener('click', function() {
+          if (def.action === 'voiceRequestAccess' && globalThis.__ryuVoiceRequestDeviceAccess) {
+            actionBtn.textContent = 'Working...';
+            Promise.resolve(globalThis.__ryuVoiceRequestDeviceAccess()).finally(function() {
+              actionBtn.textContent = def.text || 'Run';
+              if (globalThis.__ryuVoiceRefreshSettings) globalThis.__ryuVoiceRefreshSettings();
+              if (document.getElementById(RYU_SP_ID)) renderSpRows(document.getElementById(RYU_SP_ID));
+            });
+          } else if (def.action === 'voiceRefreshDevices' && globalThis.__ryuVoiceRefreshDevices) {
+            actionBtn.textContent = 'Refreshing...';
+            Promise.resolve(globalThis.__ryuVoiceRefreshDevices()).finally(function() {
+              actionBtn.textContent = def.text || 'Run';
+              if (document.getElementById(RYU_SP_ID)) renderSpRows(document.getElementById(RYU_SP_ID));
+            });
           }
-          if (rte) rte.value = val;
-          ttBtn.textContent = '\u2713';
-          setTimeout(function() { ttBtn.textContent = 'Set'; }, 1200);
-        }
-        ttBtn.addEventListener('click', function() { applyTeamTag(ttInp.value); });
-        ttInp.addEventListener('keydown', function(e) {
-          if (e.key === 'Enter') { e.preventDefault(); applyTeamTag(ttInp.value); }
         });
-        ttWrap.appendChild(ttInp);
-        ttWrap.appendChild(ttBtn);
-        ctrl.appendChild(ttWrap);
+        ctrl.appendChild(actionBtn);
+
+      } else if (def.type === 'deviceSelect') {
+        var voiceDevices = globalThis.__ryuVoiceGetDeviceOptions ? globalThis.__ryuVoiceGetDeviceOptions() : null;
+        var deviceOptions = voiceDevices
+          ? (def.deviceKind === 'output' ? voiceDevices.output : voiceDevices.input)
+          : [{ value: 'default', label: def.deviceKind === 'output' ? 'Default Output' : 'Default Input' }];
+        var deviceSelect = document.createElement('select');
+        deviceSelect.style.cssText = 'background:#1c2128;border:1px solid rgba(255,255,255,0.14);border-radius:5px;color:rgba(255,255,255,0.7);font-family:"Noto Sans",sans-serif;font-size:11px;padding:5px 8px;outline:none;cursor:pointer;min-width:180px;';
+        var selectedDevice = String(t[def.key] !== undefined ? t[def.key] : def.def);
+        deviceOptions.forEach(function(opt) {
+          var o = document.createElement('option');
+          o.value = opt.value;
+          o.textContent = opt.label;
+          if (String(opt.value) === selectedDevice) o.selected = true;
+          deviceSelect.appendChild(o);
+        });
+        if (def.deviceKind === 'output' && voiceDevices && !voiceDevices.outputSupported) {
+          var fallback = document.createElement('option');
+          fallback.value = 'default';
+          fallback.textContent = 'Default Output';
+          if (!deviceSelect.options.length) fallback.selected = true;
+          if (!deviceSelect.options.length) deviceSelect.appendChild(fallback);
+          deviceSelect.title = 'Output selection is only available when the browser supports audio sink switching.';
+        }
+        deviceSelect.addEventListener('change', function() {
+          saveT(def.key, deviceSelect.value);
+          if (def.deviceKind === 'input' && globalThis.__ryuVoiceSetInputDevice) {
+            globalThis.__ryuVoiceSetInputDevice(deviceSelect.value);
+          } else if (def.deviceKind === 'output' && globalThis.__ryuVoiceSetOutputDevice) {
+            globalThis.__ryuVoiceSetOutputDevice(deviceSelect.value);
+          } else if (globalThis.__ryuVoiceRefreshSettings) {
+            globalThis.__ryuVoiceRefreshSettings();
+          }
+        });
+        ctrl.appendChild(deviceSelect);
 
       } else if (def.type === 'cycle') {
         var cycleVal = t[def.key] !== undefined ? t[def.key] : def.def;
@@ -6227,7 +8574,7 @@
         var mkCycleBtn = function(symbol) {
           var b = document.createElement('button');
           b.textContent = symbol;
-          b.style.cssText = 'background:rgba(34,211,238,0.06);border:1px solid rgba(34,211,238,0.18);border-radius:4px;color:rgba(34,211,238,0.7);font-size:12px;width:22px;height:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;';
+          b.style.cssText = 'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.14);border-radius:4px;color:rgba(255,255,255,0.72);font-size:12px;width:22px;height:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;';
           return b;
         };
         var cyclePrev = mkCycleBtn('\u2039');
@@ -6249,14 +8596,75 @@
         cycleWrap.appendChild(cycleNext);
         ctrl.appendChild(cycleWrap);
 
+      } else if (def.type === 'kfAvatar') {
+        var avWrap = document.createElement('div');
+        avWrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+        var avPreview = document.createElement('div');
+        avPreview.style.cssText = 'width:32px;height:32px;border-radius:4px;background:#1a1a1a;border:1px solid #3a3a3a;display:flex;align-items:center;justify-content:center;font-size:13px;color:#555;overflow:hidden;flex-shrink:0;';
+        var curAv = t[def.key] || def.def;
+        if (curAv) {
+          var avImg0 = document.createElement('img');
+          avImg0.src = curAv;
+          avImg0.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+          avPreview.appendChild(avImg0);
+        } else {
+          avPreview.textContent = '?';
+        }
+        var avBtn = document.createElement('button');
+        avBtn.textContent = 'Upload';
+        avBtn.style.cssText = 'background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.16);border-radius:5px;color:rgba(255,255,255,0.82);font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;padding:4px 10px;cursor:pointer;flex-shrink:0;';
+        var avClearBtn = document.createElement('button');
+        avClearBtn.textContent = 'Clear';
+        avClearBtn.style.cssText = 'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.10);border-radius:5px;color:rgba(255,255,255,0.4);font-family:"Noto Sans",sans-serif;font-size:10px;padding:4px 8px;cursor:pointer;flex-shrink:0;';
+        var avFile = document.createElement('input');
+        avFile.type = 'file';
+        avFile.accept = 'image/*';
+        avFile.style.cssText = 'display:none;';
+        avBtn.addEventListener('click', function() { avFile.click(); });
+        avClearBtn.addEventListener('click', function() {
+          saveT(def.key, '');
+          globalThis.__ryuKfProfilePic = '';
+          avPreview.innerHTML = '';
+          avPreview.textContent = '?';
+        });
+        avFile.addEventListener('change', function() {
+          var file = avFile.files && avFile.files[0];
+          if (!file) return;
+          var reader = new FileReader();
+          reader.onload = function(e) {
+            var tmpImg = new Image();
+            tmpImg.onload = function() {
+              var canvas = document.createElement('canvas');
+              canvas.width = 32; canvas.height = 32;
+              canvas.getContext('2d').drawImage(tmpImg, 0, 0, 32, 32);
+              var dataUrl = canvas.toDataURL('image/png');
+              saveT(def.key, dataUrl);
+              globalThis.__ryuKfProfilePic = dataUrl;
+              if (globalThis.__ryuBroadcastKfAvatar) globalThis.__ryuBroadcastKfAvatar();
+              avPreview.innerHTML = '';
+              var newImg = document.createElement('img');
+              newImg.src = dataUrl;
+              newImg.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+              avPreview.appendChild(newImg);
+            };
+            tmpImg.src = e.target.result;
+          };
+          reader.readAsDataURL(file);
+        });
+        avWrap.appendChild(avPreview);
+        avWrap.appendChild(avBtn);
+        avWrap.appendChild(avClearBtn);
+        avWrap.appendChild(avFile);
+        ctrl.appendChild(avWrap);
+
       } else if (def.type === 'fontupdate') {
         var fuWrap = document.createElement('div');
         fuWrap.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%;';
         var fuBtn = document.createElement('button');
         fuBtn.textContent = 'Update';
-        fuBtn.style.cssText = 'background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.25);border-radius:5px;color:#22d3ee;font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;padding:4px 10px;cursor:pointer;flex-shrink:0;letter-spacing:0.5px;';
-        fuBtn.addEventListener('mouseenter', function() { fuBtn.style.background = 'rgba(34,211,238,0.16)'; });
-        fuBtn.addEventListener('mouseleave', function() { fuBtn.style.background = 'rgba(34,211,238,0.08)'; });
+        fuBtn.style.cssText = 'background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.16);border-radius:5px;color:rgba(255,255,255,0.92);font-family:"Noto Sans",sans-serif;font-size:10px;font-weight:700;padding:4px 10px;cursor:pointer;flex-shrink:0;letter-spacing:0.5px;';
+        fuBtn.addEventListener('mouseenter', function() { fuBtn.style.background = 'rgba(255,255,255,0.14)'; });
+        fuBtn.addEventListener('mouseleave', function() { fuBtn.style.background = 'rgba(255,255,255,0.08)'; });
         fuBtn.addEventListener('click', function() {
           if (globalThis.__ryuForceAtlasClear) globalThis.__ryuForceAtlasClear();
           fuBtn.textContent = '✓ Done';
@@ -6272,7 +8680,11 @@
       } else if (def.type === 'select') {
         var curIdx = t[def.key] !== undefined ? t[def.key] : def.def;
         curIdx = parseInt(curIdx, 10);
-        if (isNaN(curIdx) || curIdx < 0 || curIdx >= def.options.length) curIdx = def.def || 0;
+        var selectValues = def.values || def.options.map(function(_, i) { return i; });
+        if (isNaN(curIdx) || selectValues.indexOf(curIdx) === -1) curIdx = def.def || 0;
+        var linkedGroupForRow = def.key === 'fontIndex'
+          ? 'name-color-group'
+          : (def.key === 'massFont' ? 'mass-color-group' : '');
 
         // font keys get a custom preview dropdown
         var isFontSelect = (def.key === 'fontIndex' || def.key === 'massFont');
@@ -6296,7 +8708,7 @@
 
           var fdBtn = document.createElement('div');
           var fdFontName = def.options[curIdx] === 'Default' ? 'Noto Sans' : def.options[curIdx];
-          fdBtn.style.cssText = 'background:#1c2128;border:1px solid rgba(34,211,238,0.2);border-radius:5px;color:rgba(255,255,255,0.85);font-size:12px;padding:5px 28px 5px 8px;cursor:pointer;min-width:140px;position:relative;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+          fdBtn.style.cssText = 'background:#1c2128;border:1px solid rgba(255,255,255,0.14);border-radius:5px;color:rgba(255,255,255,0.85);font-size:12px;padding:5px 28px 5px 8px;cursor:pointer;min-width:140px;position:relative;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
           fdBtn.style.fontFamily = '"' + fdFontName + '", sans-serif';
           fdBtn.textContent = def.options[curIdx];
 
@@ -6307,7 +8719,7 @@
           fdBtn.appendChild(fdChev);
 
           var fdDrop = document.createElement('div');
-          fdDrop.style.cssText = 'display:none;position:fixed;z-index:999999;background:#1c2128;border:1px solid rgba(34,211,238,0.2);border-radius:6px;overflow-y:auto;max-height:220px;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,0.6);';
+          fdDrop.style.cssText = 'display:none;position:fixed;z-index:999999;background:#1c2128;border:1px solid rgba(255,255,255,0.14);border-radius:6px;overflow-y:auto;max-height:220px;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,0.6);';
 
           def.options.forEach(function(opt, i) {
             var fi = document.createElement('div');
@@ -6315,8 +8727,8 @@
             fi.style.cssText = 'padding:7px 10px;cursor:pointer;font-size:13px;color:rgba(255,255,255,0.8);white-space:nowrap;transition:background 0.1s;';
             fi.style.fontFamily = fFamily;
             fi.textContent = opt;
-            if (i === curIdx) fi.style.color = '#22d3ee';
-            fi.addEventListener('mouseenter', function() { fi.style.background = 'rgba(34,211,238,0.08)'; });
+            if (i === curIdx) fi.style.color = 'rgba(255,255,255,0.96)';
+            fi.addEventListener('mouseenter', function() { fi.style.background = 'rgba(255,255,255,0.08)'; });
             fi.addEventListener('mouseleave', function() { fi.style.background = ''; });
             fi.addEventListener('click', function() {
               curIdx = i;
@@ -6324,9 +8736,8 @@
               fdBtn.childNodes[0].textContent = opt;
               fdDrop.style.display = 'none';
               fdDrop.querySelectorAll('div').forEach(function(d) { d.style.color = 'rgba(255,255,255,0.8)'; });
-              fi.style.color = '#22d3ee';
+              fi.style.color = 'rgba(255,255,255,0.96)';
               saveT(def.key, i);
-              if (globalThis.__ryuRedrawName) globalThis.__ryuRedrawName();
             });
             fdDrop.appendChild(fi);
           });
@@ -6336,16 +8747,27 @@
             var isOpen = fdDrop.style.display !== 'none';
             // close all other dropdowns
             document.querySelectorAll('.ryu-font-drop').forEach(function(d) { d.style.display = 'none'; });
+            closeOpenSettingsDropdownRows();
+            setSettingsLinkedGroupState(linkedGroupForRow, false);
             if (!isOpen) {
               fdDrop.style.display = 'block';
+              setSettingsDropdownRowState(row, true);
+              setSettingsLinkedGroupState(linkedGroupForRow, true);
               var r = fdBtn.getBoundingClientRect();
               fdDrop.style.left = r.left + 'px';
               fdDrop.style.top = (r.bottom + 2) + 'px';
               fdDrop.style.width = Math.max(r.width, 180) + 'px';
+            } else {
+              setSettingsDropdownRowState(row, false);
+              setSettingsLinkedGroupState(linkedGroupForRow, false);
             }
           });
           fdDrop.className = 'ryu-font-drop';
-          document.addEventListener('click', function() { fdDrop.style.display = 'none'; });
+          document.addEventListener('click', function() {
+            fdDrop.style.display = 'none';
+            setSettingsDropdownRowState(row, false);
+            setSettingsLinkedGroupState(linkedGroupForRow, false);
+          });
 
           fdWrap.appendChild(fdBtn);
           document.body.appendChild(fdDrop);
@@ -6354,19 +8776,32 @@
         } else {
           // normal select for non-font options
           var sel = document.createElement('select');
-          sel.style.cssText = 'background:#1c2128;border:1px solid rgba(34,211,238,0.2);border-radius:5px;color:rgba(255,255,255,0.7);font-family:"Noto Sans",sans-serif;font-size:11px;padding:5px 8px;outline:none;cursor:pointer;';
+          sel.style.cssText = 'background:#1c2128;border:1px solid rgba(255,255,255,0.14);border-radius:5px;color:rgba(255,255,255,0.7);font-family:"Noto Sans",sans-serif;font-size:11px;padding:5px 8px;outline:none;cursor:pointer;';
+          sel.addEventListener('focus', function() {
+            setSettingsDropdownRowState(row, true);
+            setSettingsLinkedGroupState(linkedGroupForRow, true);
+          });
+          sel.addEventListener('blur', function() {
+            setSettingsDropdownRowState(row, false);
+            setSettingsLinkedGroupState(linkedGroupForRow, false);
+          });
           def.options.forEach(function(opt, i) {
+            var mappedValue = selectValues[i];
             var o = document.createElement('option');
-            o.value = i;
+            o.value = mappedValue;
             o.textContent = opt;
-            if (i === curIdx) o.selected = true;
+            if (mappedValue === curIdx) o.selected = true;
             sel.appendChild(o);
           });
           sel.addEventListener('change', function() {
-            var idx = parseInt(sel.value);
+            var idx = parseInt(sel.value, 10);
             saveT(def.key, idx);
+            if (def.key === 'minimapStyle' && window.__ryuRefreshMinimapStyle) {
+              window.__ryuRefreshMinimapStyle();
+              setTimeout(window.__ryuRefreshMinimapStyle, 80);
+            }
             if (def.key === 'cursorIdx' && window.__ryuApplyCursor) {
-              var CURSOR_EMOJIS = [null,'🎯','⚔️','💀','🔥','⭐','👁️','💎','🩸','⚡','🌀','🕹️','🌙','🍀','🦋','🐉','🎃','🧠','🪄','🔮','🗡️','🥷','👽','🤖','🌊','🧊','☠️'];
+              var CURSOR_EMOJIS = [null,'\uD83C\uDFAF','\u2694\uFE0F','\uD83D\uDC80','\uD83D\uDD25','\u2B50','\uD83D\uDC41\uFE0F','\uD83D\uDC8E','\uD83E\uDE78','\u26A1','\uD83C\uDF00','\uD83D\uDD79\uFE0F','\uD83C\uDF19','\uD83C\uDF40','\uD83E\uDD8B','\uD83D\uDC09','\uD83C\uDF83','\uD83E\uDDE0','\uD83E\uDE84','\uD83D\uDD2E','\uD83D\uDDE1\uFE0F','\uD83E\uDD77','\uD83D\uDC7D','\uD83E\uDD16','\uD83C\uDF0A','\uD83E\uDDCA','\u2620\uFE0F'];
               window.__ryuApplyCursor(idx > 0 ? (CURSOR_EMOJIS[idx] || null) : null);
             }
           });
@@ -6397,8 +8832,8 @@
           e.preventDefault();
         });
         track.addEventListener('dragstart', function(e) { e.preventDefault(); });
-        window.addEventListener('mousemove', function(e) { if (_drag) applySlider(e.clientX); });
-        window.addEventListener('mouseup',   function()  { _drag = false; });
+        document.addEventListener('mousemove', function(e) { if (_drag) applySlider(e.clientX); }, true);
+        document.addEventListener('mouseup',   function()  { _drag = false; }, true);
         function applySlider(clientX) {
           var r = track.getBoundingClientRect();
           if (!r.width) return;
@@ -6414,7 +8849,7 @@
 
       } else if (def.type === 'scaleslider') {
         var ssRaw = t[def.key] !== undefined ? t[def.key] : def.def;
-        // stored as decimal (1.5) or integer (150) — normalise to integer pct
+        // stored as decimal (1.5) or integer (150) Ã¢â‚¬â€ normalise to integer pct
         var ssVal = ssRaw > 10 ? ssRaw : Math.round(ssRaw * 100);
         var ssWrap = document.createElement('div');
         ssWrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
@@ -6438,8 +8873,8 @@
           e.preventDefault();
         });
         ssTrack.addEventListener('dragstart', function(e) { e.preventDefault(); });
-        window.addEventListener('mousemove', function(e) { if (_ssDrag) applySS(e.clientX); });
-        window.addEventListener('mouseup',   function()  { _ssDrag = false; });
+        document.addEventListener('mousemove', function(e) { if (_ssDrag) applySS(e.clientX); }, true);
+        document.addEventListener('mouseup',   function()  { _ssDrag = false; }, true);
         function applySS(clientX) {
           var r = ssTrack.getBoundingClientRect();
           if (!r.width) return;
@@ -6449,7 +8884,7 @@
           newVal = Math.max(def.min, Math.min(def.max, newVal));
           ssFill.style.width = ((newVal - def.min) / (def.max - def.min) * 100) + '%';
           ssDisp.textContent = newVal + '%';
-          // store as decimal multiplier e.g. 150 → 1.5
+          // store as decimal multiplier e.g. 150 Ã¢â€ â€™ 1.5
           saveT(def.key, newVal / 100);
         }
         ssWrap.appendChild(ssTrack);
@@ -6483,8 +8918,8 @@
           e.preventDefault();
         });
         scaleTrack.addEventListener('dragstart', function(e) { e.preventDefault(); });
-        window.addEventListener('mousemove', function(e) { if (_scaleDrag) applyScaleAt(e.clientX); });
-        window.addEventListener('mouseup', function() { _scaleDrag = false; });
+        document.addEventListener('mousemove', function(e) { if (_scaleDrag) applyScaleAt(e.clientX); }, true);
+        document.addEventListener('mouseup', function() { _scaleDrag = false; }, true);
 
         function applyScaleAt(clientX) {
           var r = scaleTrack.getBoundingClientRect();
@@ -6504,6 +8939,24 @@
       row.appendChild(ctrl);
       content.appendChild(row);
     });
+
+    if (_spPendingHighlight) {
+      var targetLabel = _spPendingHighlight.toLowerCase();
+      _spPendingHighlight = null;
+      setTimeout(function() {
+        var rows = Array.from(content.querySelectorAll('.ryu-sp-row'));
+        var hit = rows.find(function(row) {
+          var txt = ((row.dataset.ryuSettingLabel || '') || (row.querySelector('.ryu-sp-label') || {}).textContent || '').trim().toLowerCase();
+          var subs = (row.dataset.ryuSubSettings || '').toLowerCase();
+          return txt === targetLabel || txt.indexOf(targetLabel) !== -1 || subs.indexOf(targetLabel) !== -1;
+        });
+        if (!hit) return;
+        hit.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        hit.classList.add('ryu-sp-highlight');
+        setTimeout(function() { hit.classList.remove('ryu-sp-highlight'); }, 1400);
+      }, 40);
+    }
   }
 
 })();
+
