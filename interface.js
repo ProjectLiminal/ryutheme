@@ -881,20 +881,80 @@
 
       /* Ã¢â€â‚¬Ã¢â€â‚¬ Menu UI shell Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-menu-ui {
+        --ryu-menu-left-w: 360px;
+        --ryu-menu-center-w: 600px;
+        --ryu-menu-right-w: 340px;
+        --ryu-menu-gap: 10px;
+        --ryu-menu-top: 50%;
+        --ryu-orb-size: 202px;
+        --ryu-orb-gap: 40px;
+        --ryu-orb-label-size: 13px;
+        --ryu-input-height: 38px;
+        --ryu-action-height: 42px;
+        --ryu-acct-avatar-size: 80px;
+        --ryu-acct-hero-pad-y: 20px;
+        --ryu-acct-hero-pad-x: 18px;
+        --ryu-acct-stat-pad-y: 13px;
+        --ryu-acct-stat-pad-x: 14px;
+        --ryu-acct-btn-height: 40px;
+        --ryu-build-info-pad-top: 10px;
+        --ryu-build-info-pad-bottom: 16px;
         position: fixed;
-        top: 50%;
+        top: var(--ryu-menu-top);
         left: 50%;
         transform: translate(-50%, -50%);
         z-index: 9970;
         display: none;
-        grid-template-columns: 360px 600px 340px;
-        gap: 10px;
+        grid-template-columns: var(--ryu-menu-left-w) var(--ryu-menu-center-w) var(--ryu-menu-right-w);
+        gap: var(--ryu-menu-gap);
         font-family: 'Noto Sans', sans-serif;
         user-select: none;
         pointer-events: all;
+        width: min(calc(var(--ryu-menu-left-w) + var(--ryu-menu-center-w) + var(--ryu-menu-right-w) + (var(--ryu-menu-gap) * 2)), 96vw);
+        max-width: 96vw;
       }
       #ryu-menu-ui.ryu-menu-visible {
         display: grid;
+      }
+      #ryu-menu-ui.ryu-menu-compact {
+        --ryu-menu-left-w: 304px;
+        --ryu-menu-center-w: 516px;
+        --ryu-menu-right-w: 292px;
+        --ryu-menu-gap: 8px;
+        --ryu-menu-top: 48.5%;
+        --ryu-orb-size: 176px;
+        --ryu-orb-gap: 26px;
+        --ryu-orb-label-size: 12px;
+        --ryu-input-height: 36px;
+        --ryu-action-height: 40px;
+        --ryu-acct-avatar-size: 70px;
+        --ryu-acct-hero-pad-y: 16px;
+        --ryu-acct-hero-pad-x: 16px;
+        --ryu-acct-stat-pad-y: 11px;
+        --ryu-acct-stat-pad-x: 12px;
+        --ryu-acct-btn-height: 38px;
+        --ryu-build-info-pad-top: 8px;
+        --ryu-build-info-pad-bottom: 12px;
+      }
+      #ryu-menu-ui.ryu-menu-tight {
+        --ryu-menu-left-w: 266px;
+        --ryu-menu-center-w: 432px;
+        --ryu-menu-right-w: 252px;
+        --ryu-menu-gap: 8px;
+        --ryu-menu-top: 46.5%;
+        --ryu-orb-size: 142px;
+        --ryu-orb-gap: 16px;
+        --ryu-orb-label-size: 11px;
+        --ryu-input-height: 34px;
+        --ryu-action-height: 37px;
+        --ryu-acct-avatar-size: 60px;
+        --ryu-acct-hero-pad-y: 14px;
+        --ryu-acct-hero-pad-x: 14px;
+        --ryu-acct-stat-pad-y: 9px;
+        --ryu-acct-stat-pad-x: 10px;
+        --ryu-acct-btn-height: 34px;
+        --ryu-build-info-pad-top: 6px;
+        --ryu-build-info-pad-bottom: 10px;
       }
 
       /* Ã¢â€â‚¬Ã¢â€â‚¬ Shared box Ã¢â€â‚¬Ã¢â€â‚¬ */
@@ -1026,7 +1086,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 40px;
+        gap: var(--ryu-orb-gap);
         flex-shrink: 0;
       }
 
@@ -1041,7 +1101,7 @@
       /* Slot label above each orb */
       .ryu-orb-slot-label {
         font-family: 'Noto Sans', sans-serif;
-        font-size: 13px; font-weight: 600; letter-spacing: 2px;
+        font-size: var(--ryu-orb-label-size); font-weight: 600; letter-spacing: 2px;
         color: rgba(255,255,255,0.72);
         text-transform: uppercase;
       }
@@ -1049,7 +1109,7 @@
       /* The orb circle Ã¢â‚¬â€ full circle, single skin */
       .ryu-orb-circle {
         position: relative;
-        width: 202px; height: 202px;
+        width: var(--ryu-orb-size); height: var(--ryu-orb-size);
         border-radius: 50%;
         overflow: hidden;
         box-shadow:
@@ -1104,7 +1164,7 @@
 
       /* Ã¢â€â‚¬Ã¢â€â‚¬ CENTER: Input fields Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-inputs-section {
-        padding: 12px 14px 14px;
+        padding: 12px 14px 8px;
         display: flex; flex-direction: column; gap: 8px;
       }
       .ryu-input-row { display: flex; gap: 8px; }
@@ -1114,7 +1174,7 @@
         color: rgba(255,255,255,0.18); font-size: 13px; pointer-events: none;
       }
       .ryu-field {
-        width: 100%; height: 38px; padding: 0 10px 0 32px;
+        width: 100%; height: var(--ryu-input-height); padding: 0 10px 0 32px;
         background: #1c2128;
         border: 1px solid rgba(255,255,255,0.07);
         border-radius: 8px;
@@ -1133,7 +1193,7 @@
       /* Ã¢â€â‚¬Ã¢â€â‚¬ CENTER: Play row Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-play-row { display: flex; gap: 8px; }
       .ryu-play-btn {
-        flex: 1; height: 42px;
+        flex: 1; height: var(--ryu-action-height);
         background: rgba(255,255,255,0.85);
         border: none;
         border-radius: 8px;
@@ -1156,37 +1216,54 @@
         transform: translateY(-1px);
       }
       .ryu-spec-btn {
-        width: 42px; height: 42px;
-        background: #1c2128; border: 1px solid rgba(255,255,255,0.07);
+        flex: 1; height: var(--ryu-action-height);
+        background: transparent; border: 1px solid rgba(255,255,255,0.10);
         border-radius: 8px;
-        color: rgba(255,255,255,0.35); font-size: 15px;
+        color: rgba(255,255,255,0.6); font-size: 11px;
         cursor: pointer; outline: none;
-        display: flex; align-items: center; justify-content: center;
+        display: flex; align-items: center; justify-content: center; gap: 8px;
         transition: all 0.15s;
-        font-family: 'Noto Sans', sans-serif; font-weight: 700; letter-spacing: 1px;
+        font-family: 'Noto Sans', sans-serif; font-weight: 800; letter-spacing: 2px;
       }
       .ryu-spec-btn:hover {
         border-color: rgba(255,255,255,0.18); color: #fff;
+        background: rgba(255,255,255,0.03);
+      }
+      .ryu-spec-row { display: flex; margin-top: 8px; }
+      .ryu-spec-wide-btn {
+        flex: 1; height: var(--ryu-action-height);
+        background: transparent;
+        border: 1px solid rgba(255,255,255,0.10);
+        border-radius: 8px;
+        color: rgba(255,255,255,0.82);
+        font-family: 'Noto Sans', sans-serif; font-size: 11px; font-weight: 800;
+        letter-spacing: 2px; cursor: pointer; outline: none;
+        display: flex; align-items: center; justify-content: center; gap: 8px;
+        transition: all 0.15s;
+      }
+      .ryu-spec-wide-btn:hover {
+        border-color: rgba(255,255,255,0.18); color: #fff;
+        background: rgba(255,255,255,0.03);
       }
 
       /* Ã¢â€â‚¬Ã¢â€â‚¬ CENTER: Settings button Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-settings-row { display: flex; }
       #ryu-open-settings-btn {
-        flex: 1; height: 42px;
+        flex: 1; height: var(--ryu-action-height);
         background: transparent;
         border: 1px solid rgba(255,255,255,0.10);
         border-radius: 8px;
-        color: rgba(255,255,255,0.6);
-        font-family: 'Noto Sans', sans-serif; font-size: 11px; font-weight: 700;
+        color: rgba(255,255,255,0.82);
+        font-family: 'Noto Sans', sans-serif; font-size: 11px; font-weight: 800;
         letter-spacing: 2px; cursor: pointer; outline: none;
-        display: flex; align-items: center; justify-content: flex-start;
-        padding-left: 212px; gap: 8px;
+        display: flex; align-items: center; justify-content: center;
+        gap: 8px;
         transition: all 0.15s;
       }
       #ryu-open-settings-btn:hover {
-        background: rgba(255,255,255,0.06);
+        background: rgba(255,255,255,0.03);
         border-color: rgba(255,255,255,0.18);
-        color: rgba(255,255,255,0.92);
+        color: #fff;
       }
 
       /* Ã¢â€â‚¬Ã¢â€â‚¬ RIGHT: Account panel Ã¢â‚¬â€ Command HQ Ã¢â€â‚¬Ã¢â€â‚¬ */
@@ -1200,7 +1277,7 @@
         border-bottom: none;
         overflow: hidden;
         display: flex; align-items: center; gap: 16px;
-        padding: 20px 18px; position: relative;
+        padding: var(--ryu-acct-hero-pad-y) var(--ryu-acct-hero-pad-x); position: relative;
       }
       .ryu-acct-hero::after {
         content: ''; position: absolute; inset: 0;
@@ -1211,7 +1288,7 @@
         pointer-events: none;
       }
       .ryu-acct-avatar {
-        width: 80px; height: 80px; border-radius: 50%;
+        width: var(--ryu-acct-avatar-size); height: var(--ryu-acct-avatar-size); border-radius: 50%;
         background: rgba(255,255,255,0.10);
         border: 2px solid rgba(255,255,255,0.18);
         box-shadow: 0 0 20px rgba(255,255,255,0.05);
@@ -1278,7 +1355,7 @@
         border-top: none;
       }
       .ryu-acct-stat {
-        background: #161b22; padding: 13px 14px;
+        background: #161b22; padding: var(--ryu-acct-stat-pad-y) var(--ryu-acct-stat-pad-x);
         display: flex; flex-direction: column; gap: 4px;
       }
       .ryu-acct-stat-label {
@@ -1295,7 +1372,7 @@
         padding: 14px 14px 10px; display: flex; flex-direction: column; gap: 8px;
       }
       .ryu-acct-btn {
-        height: 40px;
+        height: var(--ryu-acct-btn-height);
         border-radius: 8px;
         display: flex; align-items: center; justify-content: center; gap: 9px;
         font-family: 'Noto Sans', sans-serif; font-size: 12px; font-weight: 700;
@@ -1314,15 +1391,68 @@
       .ryu-acct-btn.secondary:hover {
         background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.18); color: rgba(255,255,255,0.9);
       }
+      .ryu-acct-owned {
+        margin: 0 14px 12px;
+        padding: 12px 12px 10px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px;
+      }
+      .ryu-acct-owned-header { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+      .ryu-acct-owned-title {
+        font-family: 'Noto Sans', sans-serif; font-size: 9px; font-weight: 800;
+        letter-spacing: 2.5px; color: rgba(255,255,255,0.76); text-transform: uppercase;
+      }
+      .ryu-acct-owned-count {
+        font-family: 'Noto Sans', sans-serif; font-size: 9px; font-weight: 800;
+        letter-spacing: 1.5px; color: rgba(255,255,255,0.42);
+      }
+      .ryu-acct-owned-list { display:flex; flex-wrap:wrap; gap:8px; }
+      .ryu-acct-owned-empty {
+        font-family: 'Noto Sans', sans-serif; font-size: 10px; line-height: 1.5;
+        color: rgba(255,255,255,0.44);
+      }
+      .ryu-acct-badge-chip {
+        min-width: 0; display:flex; align-items:center; gap:9px; padding:8px 10px;
+        border-radius: 9px; background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08); flex: 1 1 calc(50% - 4px);
+      }
+      .ryu-acct-badge-chip.owned { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.18); }
+      .ryu-acct-badge-chip.active { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.22); }
+      .ryu-acct-badge-icon {
+        width: 26px; height: 26px; flex-shrink: 0; border-radius: 7px;
+        background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+        object-fit: contain; padding: 3px; box-sizing: border-box;
+      }
+      .ryu-acct-badge-meta { min-width: 0; display:flex; flex-direction:column; gap:2px; }
+      .ryu-acct-badge-name {
+        font-family: 'Noto Sans', sans-serif; font-size: 10px; font-weight: 800; letter-spacing: 0.4px;
+        color: rgba(255,255,255,0.88); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .ryu-acct-badge-state {
+        font-family: 'Noto Sans', sans-serif; font-size: 8px; font-weight: 800; letter-spacing: 1.8px;
+        color: rgba(255,255,255,0.46); text-transform: uppercase;
+      }
+      .ryu-acct-badge-chip.active .ryu-acct-badge-state { color: rgba(255,255,255,0.9); }
 
       /* Ã¢â€â‚¬Ã¢â€â‚¬ TEAM BOX Ã¢â‚¬â€ below the main menu panel Ã¢â€â‚¬Ã¢â€â‚¬ */
       /* Ã¢â€â‚¬Ã¢â€â‚¬ TEAM BOX Ã¢â‚¬â€ Design 3: Operator Roster Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-team-box {
-        position: fixed;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 1320px;
-        max-width: 96vw;
+        --ryu-team-w: 1320px;
+        --ryu-team-h: 96px;
+        --ryu-team-pad-x: 14px;
+        --ryu-team-gap: 10px;
+        --ryu-team-label-pad-x: 22px;
+        --ryu-team-card-h: 68px;
+        --ryu-team-card-pad-x: 16px;
+        --ryu-team-card-gap: 14px;
+        --ryu-team-skin: 50px;
+        position: relative;
+        left: auto;
+        top: auto;
+        transform: none;
+        width: 100%;
+        max-width: none;
         box-sizing: border-box;
         z-index: 9969;
         display: none;
@@ -1335,10 +1465,34 @@
         pointer-events: all;
         transition: opacity 0.22s ease;
         opacity: 0;
-        height: 96px;
+        height: var(--ryu-team-h);
         align-items: center;
-        padding: 0 14px;
-        gap: 10px;
+        padding: 0 var(--ryu-team-pad-x);
+        gap: var(--ryu-team-gap);
+        grid-column: 1 / -1;
+        margin-top: 6px;
+      }
+      #ryu-team-box.ryu-team-compact {
+        --ryu-team-w: 1180px;
+        --ryu-team-h: 86px;
+        --ryu-team-pad-x: 12px;
+        --ryu-team-gap: 8px;
+        --ryu-team-label-pad-x: 18px;
+        --ryu-team-card-h: 60px;
+        --ryu-team-card-pad-x: 12px;
+        --ryu-team-card-gap: 10px;
+        --ryu-team-skin: 44px;
+      }
+      #ryu-team-box.ryu-team-tight {
+        --ryu-team-w: 1040px;
+        --ryu-team-h: 78px;
+        --ryu-team-pad-x: 10px;
+        --ryu-team-gap: 7px;
+        --ryu-team-label-pad-x: 14px;
+        --ryu-team-card-h: 52px;
+        --ryu-team-card-pad-x: 10px;
+        --ryu-team-card-gap: 8px;
+        --ryu-team-skin: 38px;
       }
       #ryu-team-box.ryu-team-visible {
         display: flex;
@@ -1348,22 +1502,22 @@
         font-family: 'Noto Sans', sans-serif;
         font-size: 13px; font-weight: 700; letter-spacing: 3px;
         color: rgba(255,255,255,0.72);
-        padding: 0 22px;
+        padding: 0 var(--ryu-team-label-pad-x);
         border-right: 1px solid rgba(255,255,255,0.06);
         height: 100%; display: flex; align-items: center;
         white-space: nowrap; flex-shrink: 0;
       }
       #ryu-team-players {
         display: flex; flex: 1; align-items: center;
-        gap: 10px; height: 100%;
+        gap: var(--ryu-team-gap); height: 100%;
       }
       .ryu-team-card {
         flex: 1;
-        display: flex; align-items: center; gap: 14px;
+        display: flex; align-items: center; gap: var(--ryu-team-card-gap);
         background: rgba(255,255,255,0.02);
         border: 1px solid rgba(255,255,255,0.05);
-        padding: 0 16px;
-        height: 68px;
+        padding: 0 var(--ryu-team-card-pad-x);
+        height: var(--ryu-team-card-h);
         position: relative; overflow: hidden;
         min-width: 0;
       }
@@ -1379,7 +1533,7 @@
       }
       /* Split orb container */
       .ryu-team-card-skin {
-        width: 50px; height: 50px;
+        width: var(--ryu-team-skin); height: var(--ryu-team-skin);
         border-radius: 50%; flex-shrink: 0;
         border: 2px solid rgba(255,255,255,0.18);
         box-shadow: 0 0 12px rgba(255,255,255,0.05);
@@ -1587,16 +1741,144 @@
 
       /* Ã¢â€â‚¬Ã¢â€â‚¬ RIGHT: Build info Ã¢â€â‚¬Ã¢â€â‚¬ */
       .ryu-build-info {
-        margin-top: auto; padding: 10px 14px;
+        margin-top: auto; padding: var(--ryu-build-info-pad-top) 14px var(--ryu-build-info-pad-bottom);
         font-size: 9px; letter-spacing: 2px;
         color: rgba(255,255,255,0.12);
         font-family: 'Noto Sans', sans-serif;
         border-top: 1px solid rgba(255,255,255,0.04);
         text-align: center;
       }
+      #ryu-menu-ui.ryu-menu-compact .ryu-menu-label,
+      #ryu-menu-ui.ryu-menu-tight .ryu-menu-label {
+        letter-spacing: 2.5px;
+        padding: 10px 12px 7px;
+      }
+      #ryu-menu-ui.ryu-menu-compact .ryu-region-group,
+      #ryu-menu-ui.ryu-menu-tight .ryu-region-group {
+        padding: 0 12px 10px;
+      }
+      #ryu-menu-ui.ryu-menu-compact .ryu-region-btn,
+      #ryu-menu-ui.ryu-menu-tight .ryu-region-btn {
+        height: 32px;
+      }
+      #ryu-menu-ui.ryu-menu-compact .ryu-mode-item,
+      #ryu-menu-ui.ryu-menu-tight .ryu-mode-item {
+        padding: 8px 12px;
+      }
+      #ryu-menu-ui.ryu-menu-compact .ryu-orb-section,
+      #ryu-menu-ui.ryu-menu-tight .ryu-orb-section {
+        padding: 14px 14px 8px;
+        gap: 10px;
+      }
+      #ryu-menu-ui.ryu-menu-tight .ryu-orb-profile-text,
+      #ryu-menu-ui.ryu-menu-tight .ryu-play-btn,
+      #ryu-menu-ui.ryu-menu-tight .ryu-spec-wide-btn,
+      #ryu-menu-ui.ryu-menu-tight #ryu-open-settings-btn {
+        letter-spacing: 1.5px;
+      }
+      #ryu-menu-ui.ryu-menu-compact .ryu-inputs-section,
+      #ryu-menu-ui.ryu-menu-tight .ryu-inputs-section {
+        padding: 10px 12px 6px;
+        gap: 6px;
+      }
+      #ryu-menu-ui.ryu-menu-compact .ryu-acct-hero,
+      #ryu-menu-ui.ryu-menu-tight .ryu-acct-hero {
+        gap: 12px;
+        margin: 0 12px;
+      }
+      #ryu-menu-ui.ryu-menu-compact .ryu-acct-stats,
+      #ryu-menu-ui.ryu-menu-tight .ryu-acct-stats {
+        margin: 0 12px;
+      }
+      #ryu-menu-ui.ryu-menu-compact .ryu-acct-actions,
+      #ryu-menu-ui.ryu-menu-tight .ryu-acct-actions {
+        padding: 12px 12px 8px;
+        gap: 6px;
+      }
+      #ryu-menu-ui.ryu-menu-compact .ryu-acct-owned,
+      #ryu-menu-ui.ryu-menu-tight .ryu-acct-owned {
+        margin: 0 12px 10px;
+        padding: 10px 10px 8px;
+      }
+      #ryu-menu-ui.ryu-menu-compact .ryu-acct-name {
+        font-size: 15px;
+      }
+      #ryu-menu-ui.ryu-menu-tight .ryu-acct-name {
+        font-size: 14px;
+      }
+      #ryu-menu-ui.ryu-menu-compact .ryu-acct-stat-val {
+        font-size: 14px;
+      }
+      #ryu-menu-ui.ryu-menu-tight .ryu-acct-stat-val {
+        font-size: 13px;
+      }
+      #ryu-menu-ui.ryu-menu-tight .ryu-acct-badge-chip {
+        flex-basis: 100%;
+      }
+      #ryu-menu-ui.ryu-menu-tight .ryu-acct-badge-name {
+        font-size: 9px;
+      }
+      #ryu-menu-ui.ryu-menu-tight .ryu-acct-badge-state {
+        letter-spacing: 1.4px;
+      }
+      #ryu-team-box.ryu-team-compact .ryu-team-card-slot,
+      #ryu-team-box.ryu-team-tight .ryu-team-card-slot {
+        margin-bottom: 3px;
+      }
+      #ryu-team-box.ryu-team-compact .ryu-team-card-name {
+        font-size: 16px;
+      }
+      #ryu-team-box.ryu-team-tight .ryu-team-card-name {
+        font-size: 14px;
+      }
+      #ryu-team-box.ryu-team-tight #ryu-team-box-label {
+        font-size: 11px;
+        letter-spacing: 2px;
+      }
 
       
 
+    `;
+    (document.head || document.documentElement).appendChild(s);
+  }
+
+  function injectResponsiveOverlayStyle() {
+    var id = 'ryu-responsive-overlay-style';
+    var existing = document.getElementById(id);
+    if (existing) existing.remove();
+    var s = document.createElement('style');
+    s.id = id;
+    s.textContent = `
+      @media (max-width: 1600px), (max-height: 960px) {
+        #ryu-csm-injected { width: 1260px !important; height: 800px !important; max-width: 94vw !important; max-height: 92vh !important; }
+        #ryu-shop-injected, #ryu-inv-injected, #ryu-gal-injected { width: 1360px !important; height: 860px !important; max-width: 94vw !important; max-height: 92vh !important; }
+        #ryu-sp-box, #ryu-settings-panel.ryu-sp-theme-mode #ryu-sp-box { width: 1000px !important; height: 720px !important; max-width: 95vw !important; max-height: 92vh !important; }
+        #ryu-csm-sidebar, #ryu-gal-sidebar, #ryu-sp-sidebar { width: 176px !important; }
+        #ryu-sp-content { padding: 18px 22px !important; }
+        #ryu-gal-grid-wrap { padding: 12px 16px !important; }
+        .ryu-gal-card { gap: 12px !important; padding: 12px 16px !important; }
+        #ryu-clip-editor-box { width: 760px !important; max-width: 92vw !important; }
+        #ryu-clip-loading-label { font-size: 11px !important; letter-spacing: 2px !important; }
+        #ryu-clip-loading-text, #ryu-clip-loading-pct { font-size: 10px !important; }
+      }
+      @media (max-width: 1440px), (max-height: 860px) {
+        #ryu-csm-injected { width: 1120px !important; height: 720px !important; max-width: 95vw !important; max-height: 90vh !important; }
+        #ryu-shop-injected, #ryu-inv-injected, #ryu-gal-injected { width: 1180px !important; height: 740px !important; max-width: 95vw !important; max-height: 90vh !important; }
+        #ryu-sp-box, #ryu-settings-panel.ryu-sp-theme-mode #ryu-sp-box { width: 900px !important; height: 660px !important; max-width: 95vw !important; max-height: 90vh !important; }
+        #ryu-clip-editor-box { width: 680px !important; max-width: 92vw !important; }
+        #ryu-csm-header, #ryu-shop-header, #ryu-inv-header, #ryu-gal-header, #ryu-sp-topbar { height: 44px !important; }
+        #ryu-csm-header, #ryu-shop-header, #ryu-inv-header, #ryu-gal-header { padding-left: 18px !important; padding-right: 18px !important; }
+        #ryu-csm-title, #ryu-shop-title, #ryu-inv-title, #ryu-gal-title, #ryu-sp-logo { font-size: 11px !important; letter-spacing: 3px !important; }
+        #ryu-csm-sidebar, #ryu-gal-sidebar, #ryu-sp-sidebar { width: 154px !important; }
+        .ryu-shop-tab, .ryu-inv-tab, .ryu-sp-tab { font-size: 8px !important; letter-spacing: 1px !important; }
+        #ryu-sp-content { padding: 16px 18px !important; }
+        #ryu-gal-grid-wrap { padding: 10px 12px !important; }
+        .ryu-gal-card { gap: 10px !important; padding: 10px 12px !important; }
+        .ryu-gal-card-name { font-size: 13px !important; }
+        .ryu-gal-card-meta { font-size: 11px !important; gap: 12px !important; }
+        #ryu-clip-loading-label { font-size: 10px !important; letter-spacing: 2px !important; }
+        #ryu-clip-loading-text, #ryu-clip-loading-pct { font-size: 9px !important; }
+      }
     `;
     (document.head || document.documentElement).appendChild(s);
   }
@@ -1768,11 +2050,15 @@
           '</div>',
           '<div class="ryu-acct-actions">',
             (isGuest ? '<a class="ryu-acct-btn primary" id="ryu-menu-acct-login" href="' + loginHref + '">⚡ LOGIN</a>' : ''),
+            '<button class="ryu-acct-btn primary" id="ryu-menu-google-signin">🔐 RYUTHEME SIGN IN</button>',
+            '<button class="ryu-acct-btn secondary" id="ryu-menu-google-signout" style="display:none;">SIGN OUT</button>',
             '<button class="ryu-acct-btn secondary" id="ryu-menu-acct-shop">🏪 SHOP</button>',
             '<button class="ryu-acct-btn secondary" id="ryu-menu-acct-inventory">📦 INVENTORY</button>',
             '<button class="ryu-acct-btn secondary" id="ryu-menu-acct-replays">▶ REPLAYS</button>',
 
           '</div>',
+          '<div class="ryu-acct-owned" id="ryu-menu-owned-badges"><div class="ryu-acct-owned-header"><div class="ryu-acct-owned-title">Owned Badges</div><div class="ryu-acct-owned-count" id="ryu-menu-owned-badges-count">0 OWNED</div></div><div class="ryu-acct-owned-list" id="ryu-menu-owned-badges-list"></div></div>',
+          '<div id="ryu-menu-google-auth-status" style="margin-top:10px;font-family:\'Noto Sans\',sans-serif;font-size:10px;line-height:1.5;color:rgba(255,255,255,0.58);">Sign in with Google to use Ryutheme badges and proximity voice.</div>',
         '</div>',
         '<div class="ryu-build-info">BUILD ' + version + ' · RYUTEN.IO</div>',
       '</div>'
@@ -1780,7 +2066,212 @@
     ].join('');
 
     document.body.appendChild(panel);
+    var existingTeamBox = document.getElementById('ryu-team-box');
+    if (existingTeamBox && existingTeamBox.parentNode !== panel) panel.appendChild(existingTeamBox);
     if (globalThis.__ryuPositionTeamBox) globalThis.__ryuPositionTeamBox();
+
+    function syncMenuViewportMode() {
+      var viewportW = window.innerWidth || 0;
+      var viewportH = window.innerHeight || 0;
+      var isTight = viewportH <= 1080 || viewportW <= 1600;
+      var isCompact = !isTight && (viewportH <= 1200 || viewportW <= 2048);
+      panel.classList.toggle('ryu-menu-tight', isTight);
+      panel.classList.toggle('ryu-menu-compact', !isTight && isCompact);
+      var teamBox = document.getElementById('ryu-team-box');
+      if (teamBox) {
+        teamBox.classList.toggle('ryu-team-tight', isTight);
+        teamBox.classList.toggle('ryu-team-compact', !isTight && isCompact);
+      }
+    }
+    globalThis.__ryuSyncMenuViewportMode = syncMenuViewportMode;
+    panel._ryuSyncViewportMode = syncMenuViewportMode;
+    if (!globalThis.__ryuMenuViewportModeHandlerBound) {
+      globalThis.__ryuMenuViewportModeHandlerBound = true;
+      window.addEventListener('resize', function() {
+        var livePanel = document.getElementById(MENU_UI_ID);
+        if (livePanel && typeof livePanel._ryuSyncViewportMode === 'function') livePanel._ryuSyncViewportMode();
+      });
+    }
+    syncMenuViewportMode();
+    if (globalThis.__ryuPositionTeamBox) globalThis.__ryuPositionTeamBox();
+
+    function showRyuNameModal(isChanging) {
+      var existingModal = document.getElementById('ryu-name-modal');
+      if (existingModal) existingModal.remove();
+      var state = globalThis.__ryuGetAuthState ? globalThis.__ryuGetAuthState() : (globalThis.__ryuAuthState || {});
+      var modal = document.createElement('div');
+      modal.id = 'ryu-name-modal';
+      modal.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.72);display:flex;align-items:center;justify-content:center;';
+      var box = document.createElement('div');
+      box.style.cssText = 'background:#16162a;border:1px solid rgba(255,255,255,0.13);border-radius:12px;padding:28px 32px;width:340px;max-width:90vw;font-family:\'Noto Sans\',sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.55);';
+      var title = document.createElement('div');
+      title.style.cssText = 'font-size:14px;font-weight:700;color:#fff;letter-spacing:0.08em;margin-bottom:6px;';
+      title.textContent = isChanging ? 'CHANGE ACCOUNT NAME' : 'SET YOUR ACCOUNT NAME';
+      var sub = document.createElement('div');
+      sub.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.48);margin-bottom:18px;line-height:1.5;';
+      sub.textContent = 'This name is linked to your Ryutheme account. You can change it any time.';
+      var input = document.createElement('input');
+      input.id = 'ryu-name-modal-input';
+      input.type = 'text';
+      input.maxLength = 24;
+      input.placeholder = 'Enter a name...';
+      input.value = (state && state.displayName) || '';
+      input.style.cssText = 'width:100%;box-sizing:border-box;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.18);border-radius:7px;padding:9px 12px;font-size:13px;color:#fff;font-family:inherit;outline:none;margin-bottom:14px;';
+      var btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:8px;';
+      var confirmBtn = document.createElement('button');
+      confirmBtn.id = 'ryu-name-modal-confirm';
+      confirmBtn.textContent = 'CONFIRM';
+      confirmBtn.style.cssText = 'flex:1;background:linear-gradient(135deg,#5b2fff,#7c4dff);border:none;border-radius:7px;padding:9px;font-size:12px;font-weight:700;color:#fff;cursor:pointer;letter-spacing:0.06em;';
+      var skipBtn = document.createElement('button');
+      skipBtn.textContent = isChanging ? 'CANCEL' : 'SKIP';
+      skipBtn.style.cssText = 'flex:0 0 auto;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);border-radius:7px;padding:9px 14px;font-size:12px;color:rgba(255,255,255,0.55);cursor:pointer;';
+      btnRow.appendChild(confirmBtn);
+      btnRow.appendChild(skipBtn);
+      box.appendChild(title);
+      box.appendChild(sub);
+      box.appendChild(input);
+      box.appendChild(btnRow);
+      modal.appendChild(box);
+      document.body.appendChild(modal);
+      input.focus();
+      input.select();
+      function doConfirm() {
+        var name = input.value.trim();
+        if (!name) {
+          if (globalThis.__ryuShowToast) globalThis.__ryuShowToast('Please enter a name.', 'error');
+          return;
+        }
+        if (!globalThis.__ryuSetDisplayName) return;
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'SAVING...';
+        Promise.resolve(globalThis.__ryuSetDisplayName(name)).then(function(updatedState) {
+          modal.remove();
+          syncRyuGoogleAuthUi();
+          var welcomeName = (updatedState && updatedState.displayName) || name;
+          if (globalThis.__ryuShowToast) globalThis.__ryuShowToast('Welcome ' + welcomeName + '!', 'success');
+        }).catch(function(err) {
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'CONFIRM';
+          if (globalThis.__ryuShowToast) globalThis.__ryuShowToast((err && err.message) || 'Failed to save name.', 'error');
+        });
+      }
+      confirmBtn.addEventListener('click', doConfirm);
+      skipBtn.addEventListener('click', function() { modal.remove(); });
+      input.addEventListener('keydown', function(e) { if (e.key === 'Enter') doConfirm(); });
+      if (isChanging) modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+    }
+
+    function syncRyuGoogleAuthUi() {
+      var state = globalThis.__ryuGetAuthState ? globalThis.__ryuGetAuthState() : (globalThis.__ryuAuthState || {});
+      var signinBtn = document.getElementById('ryu-menu-google-signin');
+      var signoutBtn = document.getElementById('ryu-menu-google-signout');
+      var statusEl = document.getElementById('ryu-menu-google-auth-status');
+      if (!signinBtn || !signoutBtn || !statusEl) return;
+      if (state && state.signedIn) {
+        signinBtn.textContent = '✅ CONNECTED';
+        signinBtn.disabled = true;
+        signinBtn.style.opacity = '0.7';
+        signinBtn.style.cursor = 'default';
+        signoutBtn.style.display = '';
+        while (statusEl.firstChild) statusEl.removeChild(statusEl.firstChild);
+        var linkedText = 'Ryutheme account linked to ' + (state.email || state.name || 'Google') + '.';
+        if (state.displayName) linkedText += ' Account name: ' + state.displayName + '.';
+        linkedText += ' Badges and proximity voice now follow this account. ';
+        statusEl.appendChild(document.createTextNode(linkedText));
+        var nameLink = document.createElement('a');
+        nameLink.href = '#';
+        nameLink.textContent = state.displayName ? 'Change name' : 'Set account name';
+        nameLink.style.cssText = 'color:rgba(180,150,255,0.85);text-decoration:underline;cursor:pointer;';
+        nameLink.addEventListener('click', function(e) { e.preventDefault(); showRyuNameModal(true); });
+        statusEl.appendChild(nameLink);
+      } else {
+        signinBtn.textContent = '🔐 RYUTHEME SIGN IN';
+        signinBtn.disabled = false;
+        signinBtn.style.opacity = '';
+        signinBtn.style.cursor = '';
+        signoutBtn.style.display = 'none';
+        statusEl.textContent = 'Sign in with Google to use Ryutheme badges and proximity voice.';
+      }
+    }
+
+    function syncOwnedBadgesUi() {
+      var listEl = document.getElementById('ryu-menu-owned-badges-list');
+      var countEl = document.getElementById('ryu-menu-owned-badges-count');
+      var state = globalThis.__ryuGetAuthState ? globalThis.__ryuGetAuthState() : (globalThis.__ryuAuthState || {});
+      if (!listEl || !countEl) return;
+
+      var activeBadgeId = String(globalThis.__ryuCustomActiveTitle || localStorage.getItem('ryuActiveCustomBadge') || '').trim();
+      var ownedCount = 0;
+
+      if (!(state && state.signedIn)) {
+        countEl.textContent = '0 OWNED';
+        listEl.innerHTML = '<div class="ryu-acct-owned-empty">Sign in with your Google-linked Ryutheme account to sync badge ownership here.</div>';
+        return;
+      }
+
+      var ownedMarkup = RYU_CUSTOM_BADGE_TITLES.map(function(item) {
+        var isOwned = !!(globalThis.__ryuHasBadgeEntitlement && globalThis.__ryuHasBadgeEntitlement(item.id));
+        if (!isOwned) return '';
+        var isActive = activeBadgeId === item.id;
+        if (isOwned) ownedCount++;
+        return '<div class="ryu-acct-badge-chip owned' + (isActive ? ' active' : '') + '">' +
+          '<img class="ryu-acct-badge-icon" src="' + ryuCustomBadgeAssetUrl(item.file) + '" alt="' + item.name + '">' +
+          '<div class="ryu-acct-badge-meta">' +
+            '<div class="ryu-acct-badge-name">' + item.name + '</div>' +
+            '<div class="ryu-acct-badge-state">' + (isActive ? 'Equipped' : 'Owned') + '</div>' +
+          '</div>' +
+        '</div>';
+      }).filter(Boolean).join('');
+      countEl.textContent = ownedCount + ' OWNED';
+      listEl.innerHTML = ownedMarkup || '<div class="ryu-acct-owned-empty">No account-owned badges are linked to this Ryutheme account yet.</div>';
+    }
+
+    var ryuGoogleSignInBtn = document.getElementById('ryu-menu-google-signin');
+    if (ryuGoogleSignInBtn) {
+      ryuGoogleSignInBtn.addEventListener('click', function() {
+        if (!globalThis.__ryuSignInWithGoogle) return;
+        ryuGoogleSignInBtn.textContent = 'CONNECTING...';
+        ryuGoogleSignInBtn.disabled = true;
+        Promise.resolve(globalThis.__ryuSignInWithGoogle()).then(function(state) {
+          if (state && state.signedIn && !state.displayName) {
+            showRyuNameModal(false);
+          }
+        }).catch(function(err) {
+          if (globalThis.__ryuShowToast) globalThis.__ryuShowToast((err && err.message) || 'Google sign-in failed.', 'error');
+        }).finally(function() {
+          syncRyuGoogleAuthUi();
+          syncOwnedBadgesUi();
+        });
+      });
+    }
+
+    var ryuGoogleSignOutBtn = document.getElementById('ryu-menu-google-signout');
+    if (ryuGoogleSignOutBtn) {
+      ryuGoogleSignOutBtn.addEventListener('click', function() {
+        if (!globalThis.__ryuSignOut) return;
+        Promise.resolve(globalThis.__ryuSignOut()).catch(function(err) {
+          if (globalThis.__ryuShowToast) globalThis.__ryuShowToast((err && err.message) || 'Sign-out failed.', 'error');
+        }).finally(function() {
+          syncRyuGoogleAuthUi();
+          syncOwnedBadgesUi();
+        });
+      });
+    }
+
+    syncRyuGoogleAuthUi();
+    syncOwnedBadgesUi();
+    panel._ryuSyncGoogleAuthUi = syncRyuGoogleAuthUi;
+    window.addEventListener('message', function(event) {
+      if (event.source !== window) return;
+      var data = event.data;
+      if (!data || data.source !== 'ryu-extension-bridge') return;
+      if (data.type === 'ryu-auth-state' || data.type === 'ryu-auth-response') {
+        syncRyuGoogleAuthUi();
+        syncOwnedBadgesUi();
+      }
+    });
+    window.addEventListener('ryu-badge-entitlements-changed', syncOwnedBadgesUi);
 
     // load skin images from game state
     function loadSkinImages() {
@@ -1818,6 +2309,7 @@
     if (_menuSkinTimer) clearInterval(_menuSkinTimer);
     _menuSkinTimer = setInterval(function() {
       try {
+        if (!panel.isConnected || !isMainMenuVisible()) return;
         var ue = window.__Ue;
         if (!ue || !ue._3901) return;
         var s1 = ue._3901._9315 || '';
@@ -1826,7 +2318,7 @@
           loadSkinImages();
         }
       } catch(e) {}
-    }, 1000);
+    }, 1500);
 
     // change skins button
     var changeSkinsBtnEl = document.getElementById('ryu-change-skins-btn');
@@ -1938,8 +2430,20 @@
     // spectate button
     var specBtn = document.getElementById('ryu-spec-btn');
     var nativeSpec = document.getElementById('mame-spectate-btn');
+    if (specBtn && !document.getElementById('ryu-spec-wide-btn')) {
+      var specRow = document.createElement('div');
+      specRow.className = 'ryu-spec-row';
+      specRow.innerHTML = '<button class="ryu-spec-wide-btn" id="ryu-spec-wide-btn">&#128065; &nbsp; SPECTATE</button>';
+      var settingsRow = document.querySelector('.ryu-settings-row');
+      if (settingsRow && settingsRow.parentNode) settingsRow.parentNode.insertBefore(specRow, settingsRow);
+      specBtn.style.display = 'none';
+    }
+    var specWideBtn = document.getElementById('ryu-spec-wide-btn');
     if (specBtn && nativeSpec) {
       specBtn.addEventListener('click', function () { nativeSpec.click(); });
+    }
+    if (specWideBtn && nativeSpec) {
+      specWideBtn.addEventListener('click', function () { nativeSpec.click(); });
     }
 
     // settings button
@@ -2286,6 +2790,7 @@
   // pre-inject overlay styles at boot
   injectAgarModeStyle();
   syncAgarModeState();
+  injectResponsiveOverlayStyle();
   setInterval(function () {
     var t = loadTheme();
     var isDefault = !!t.useDefault;
@@ -2333,7 +2838,9 @@
     playersEl.id = 'ryu-team-players';
     tb.appendChild(playersEl);
 
-    document.body.appendChild(tb);
+    var menuPanel = document.getElementById('ryu-menu-ui');
+    if (menuPanel) menuPanel.appendChild(tb);
+    else document.body.appendChild(tb);
 
     var _teamBoxSig = '';
     var _teamRefreshFrame = null;
@@ -2343,10 +2850,8 @@
     function positionTeamBox() {
       var mu = document.getElementById('ryu-menu-ui');
       if (!mu || !mu.classList.contains('ryu-menu-visible')) return;
-      var r = mu.getBoundingClientRect();
-      if (!r.height) return;
-      var boxH = tb.offsetHeight || 96;
-      tb.style.top = Math.min(r.bottom + 6, window.innerHeight - boxH - 4) + 'px';
+      if (tb.parentNode !== mu) mu.appendChild(tb);
+      tb.style.top = '';
     }
     globalThis.__ryuPositionTeamBox = positionTeamBox;
 
@@ -2807,6 +3312,18 @@
         opacity: 0;
         transform: translate(-50%, -50%) scale(0.97) !important;
         transition: opacity 140ms ease-in, transform 140ms ease-in;
+      }
+      @media (max-width: 1600px), (max-height: 960px) {
+        #ryu-csm-injected { width: 1260px; height: 800px; max-width: 94vw; max-height: 92vh; }
+        #ryu-csm-header { padding: 0 24px; height: 50px; }
+        #ryu-csm-title { font-size: 12px; letter-spacing: 4px; }
+        #ryu-csm-sidebar { width: 176px; }
+      }
+      @media (max-width: 1440px), (max-height: 860px) {
+        #ryu-csm-injected { width: 1120px; height: 720px; max-width: 95vw; max-height: 90vh; }
+        #ryu-csm-header { padding: 0 18px; height: 46px; }
+        #ryu-csm-title { font-size: 11px; letter-spacing: 3px; }
+        #ryu-csm-sidebar { width: 154px; }
       }
 
       /* Header */
@@ -5142,23 +5659,27 @@
     var s = document.createElement('style');
     s.id = 'ryu-sp-style';
     s.textContent = [
-      '#ryu-settings-panel{position:fixed;inset:0;z-index:99990;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.18s ease;}',
-      '#ryu-settings-panel.ryu-sp-open{opacity:1;pointer-events:all;}',
-      '#ryu-sp-box{width:1100px;max-width:97vw;height:780px;max-height:94vh;background:rgba(13,17,23,0.92);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,0.12);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;opacity:0;transform:scale(0.96) translateY(10px);transition:opacity 160ms cubic-bezier(0.16,1,0.3,1),transform 160ms cubic-bezier(0.16,1,0.3,1);}',
+      '#ryu-settings-panel{position:fixed;inset:0;z-index:99990;opacity:0;pointer-events:none;transition:opacity 0.18s ease;}',
+      '#ryu-settings-panel.ryu-sp-open{opacity:1;}',
+      '#ryu-sp-box{position:fixed;left:0;top:0;width:1100px;max-width:97vw;height:780px;max-height:94vh;background:rgba(13,17,23,0.92);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,0.12);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;opacity:0;transform:scale(0.96) translateY(10px);transition:opacity 160ms cubic-bezier(0.16,1,0.3,1),transform 160ms cubic-bezier(0.16,1,0.3,1);pointer-events:auto;box-shadow:0 22px 60px rgba(0,0,0,0.42);}',
       '#ryu-settings-panel.ryu-sp-open #ryu-sp-box{opacity:1;transform:scale(1) translateY(0);}',
       '#ryu-settings-panel.ryu-sp-closing #ryu-sp-box{opacity:0;transform:scale(0.97) translateY(6px);transition:opacity 200ms ease-in,transform 200ms ease-in;}',
-      '#ryu-settings-panel.ryu-sp-theme-mode{align-items:stretch;justify-content:flex-start;}',
-      '#ryu-settings-panel.ryu-sp-theme-mode #ryu-sp-box{width:960px;max-width:68vw;height:100vh;max-height:100vh;border-radius:0;border:none;border-right:1px solid rgba(255,255,255,0.08);transform:translateX(-20px);}',
-      '#ryu-settings-panel.ryu-sp-theme-mode.ryu-sp-open #ryu-sp-box{transform:translateX(0);}',
-      '#ryu-sp-topbar{background:#0d1117;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;height:56px;flex-shrink:0;padding:0 0 0 0;overflow:hidden;}',
+      '#ryu-settings-panel.ryu-sp-theme-mode #ryu-sp-box{width:1100px;max-width:97vw;height:780px;max-height:94vh;}',
+      'body:has(#ryu-settings-panel.ryu-sp-open.ryu-sp-theme-mode) #leaderboard{display:block!important;visibility:visible!important;opacity:1!important;}',
+      'body:has(#ryu-settings-panel.ryu-sp-open.ryu-sp-theme-mode) #chatbox{display:block!important;visibility:visible!important;opacity:1!important;}',
+      'body:has(#ryu-settings-panel.ryu-sp-open.ryu-sp-theme-mode) #minimap{display:block!important;visibility:visible!important;opacity:1!important;}',
+      'body:has(#ryu-settings-panel.ryu-sp-open.ryu-sp-theme-mode) .huds-bottom-right,body:has(#ryu-settings-panel.ryu-sp-open.ryu-sp-theme-mode) .huds-bottom-left{display:flex!important;visibility:visible!important;opacity:1!important;}',
+      'body:has(#ryu-settings-panel.ryu-sp-open.ryu-sp-theme-mode) .mame-brb-team{display:block!important;visibility:visible!important;opacity:1!important;}',
+      '#ryu-sp-box.ryu-sp-dragging{transition:none;cursor:grabbing;user-select:none;}',
+      '#ryu-sp-topbar{background:#0d1117;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;height:56px;flex-shrink:0;padding:0 0 0 0;overflow:hidden;cursor:grab;}',
       '#ryu-sp-topbar-tabs{display:flex;align-items:center;flex:1;min-width:0;overflow:hidden;}',
       '#ryu-sp-topbar-right{display:flex;align-items:center;flex-shrink:0;gap:4px;padding-right:8px;}',
       '#ryu-sp-logo{font-family:"Noto Sans",sans-serif;font-size:12px;font-weight:800;letter-spacing:4px;color:rgba(255,255,255,0.5);padding:0 14px;flex-shrink:0;}',
       '.ryu-sp-tab{height:100%;padding:0 14px;font-family:"Noto Sans",sans-serif;font-size:12px;font-weight:700;letter-spacing:1.5px;color:rgba(255,255,255,0.3);border:none;border-bottom:2px solid transparent;background:transparent;cursor:pointer;outline:none;transition:all 0.12s;white-space:nowrap;flex-shrink:0;}',
       '.ryu-sp-tab:hover{color:rgba(255,255,255,0.65);}',
       '.ryu-sp-tab.ryu-sp-tab-active{color:rgba(255,255,255,0.92);border-bottom-color:rgba(255,255,255,0.35);}',
-      '#ryu-sp-preview-btn{display:none;flex-shrink:0;}',
-      '#ryu-settings-panel.ryu-sp-theme-mode #ryu-sp-preview-btn{display:flex;}',
+      '#ryu-sp-preview-btn,#ryu-sp-reset-pos{display:none;flex-shrink:0;}',
+      '#ryu-settings-panel.ryu-sp-theme-mode #ryu-sp-preview-btn,#ryu-settings-panel.ryu-sp-theme-mode #ryu-sp-reset-pos{display:flex;}',
       '#ryu-sp-close{flex-shrink:0;width:34px;height:34px;background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:rgba(255,255,255,0.5);font-size:16px;cursor:pointer;outline:none;display:flex;align-items:center;justify-content:center;transition:all 0.12s;margin-left:6px;margin-right:8px;}',
       '#ryu-sp-close:hover{border-color:rgba(255,255,255,0.2);color:rgba(255,255,255,0.96);}',
       '#ryu-sp-body{display:flex;flex:1;overflow:hidden;}',
@@ -5269,7 +5790,7 @@
     ['BORDER','Rainbow Border'], ['BORDER','Border Speed'], ['BORDER','Rainbow Glow'], ['BORDER','Glow Speed'],
     ['GAMEPLAY TWEAKS','Custom Animation Delay'], ['GAMEPLAY TWEAKS','Split Counter'], ['GAMEPLAY TWEAKS','RyuTheme Kill Feed'], ['GAMEPLAY TWEAKS','Kill Feed Avatar'], ['GAMEPLAY TWEAKS','World Sectors'], ['GAMEPLAY TWEAKS','Emotes'], ['GAMEPLAY TWEAKS','Team Cell Colors'], ['GAMEPLAY TWEAKS','Danger Indicators'],
     ['GAME COSMETICS','Name Color'], ['GAME COSMETICS','Name Font'], ['GAME COSMETICS','Name Settings'], ['GAME COSMETICS','Name Stroke'], ['GAME COSMETICS','Name Stroke Color'], ['GAME COSMETICS','Name Stroke Thickness'], ['GAME COSMETICS','Hide Flags'], ['GAME COSMETICS','LeftWard Tags'], ['GAME COSMETICS','Name Scale'], ['GAME COSMETICS','Name Size'], ['GAME COSMETICS','Cell Avatar'], ['GAME COSMETICS','Mass Color'], ['GAME COSMETICS','Mass Font'], ['GAME COSMETICS','Mass Scale'], ['GAME COSMETICS','Mass Size'], ['GAME COSMETICS','Mass Settings'], ['GAME COSMETICS','Mass Stroke'], ['GAME COSMETICS','Mass Stroke Color'], ['GAME COSMETICS','Mass Stroke Thickness'], ['GAME COSMETICS','Short Mass'], ['GAME COSMETICS','Short Mass Settings'], ['GAME COSMETICS','Agar.io Mode'], ['GAME COSMETICS','Agar.io Virus'], ['GAME COSMETICS','Agar.io Map'], ['GAME COSMETICS','Agar.io Dark'], ['GAME COSMETICS','Agar.io Chatbox'], ['GAME COSMETICS','Agar.io Leaderboard'], ['GAME COSMETICS','Agar.io Minimap'], ['GAME COSMETICS','Chatbox Theme'], ['GAME COSMETICS','Chatbox Style'], ['GAME COSMETICS','Leaderboard Theme'], ['GAME COSMETICS','Leaderboard Styles'], ['GAME COSMETICS','Minimap Theme'], ['GAME COSMETICS','Minimap Style'], ['GAME COSMETICS','Chat Name Color'], ['GAME COSMETICS','Custom Color'], ['GAME COSMETICS','Pellet Color'], ['GAME COSMETICS','Rainbow Pellets'], ['GAME COSMETICS','Pellet Skins'], ['GAME COSMETICS','Rainbow Map Dots'], ['GAME COSMETICS','Minimal Mode'],
-    ['VOICE','Proximity Chat'], ['VOICE','Request Mic Access'], ['VOICE','Refresh Devices'], ['VOICE','Input Device'], ['VOICE','Output Device'], ['VOICE','Voice Volume'], ['VOICE','Clear Radius'], ['VOICE','Fade Radius'],
+    ['VOICE','Proximity Chat'], ['VOICE','Request Mic Access'], ['VOICE','Refresh Devices'], ['VOICE','Input Device'], ['VOICE','Output Device'], ['VOICE','Voice Volume'], ['VOICE','Full Volume Range'], ['VOICE','Max Hear Range'],
     ['HOTKEYS','Celebrate'],
     ['HOTKEYS','Disconnect'], ['HOTKEYS','Emote Panel'], ['HOTKEYS','Danger Overlay'], ['HOTKEYS','Minimal Mode'],
     ['THEMES','Load Theme']
@@ -5277,6 +5798,131 @@
   var _spCurrentTab = 'GAMEPLAY';
   var _spCurrentSec = null;
   var _spPendingHighlight = null;
+  var RYU_SP_STATE_KEY = 'ryuSettingsPanelState';
+
+  function loadSettingsPanelState() {
+    try {
+      var raw = localStorage.getItem(RYU_SP_STATE_KEY);
+      if (!raw) return {};
+      var parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch(e) {
+      return {};
+    }
+  }
+
+  function saveSettingsPanelState(next) {
+    try { localStorage.setItem(RYU_SP_STATE_KEY, JSON.stringify(next || {})); } catch(e) {}
+  }
+
+  function clampSettingsPanelPosition(box, left, top) {
+    var width = box ? box.offsetWidth || 0 : 0;
+    var height = box ? box.offsetHeight || 0 : 0;
+    var margin = 12;
+    var maxLeft = Math.max(margin, window.innerWidth - width - margin);
+    var maxTop = Math.max(margin, window.innerHeight - height - margin);
+    return {
+      left: Math.max(margin, Math.min(maxLeft, Math.round(left || 0))),
+      top: Math.max(margin, Math.min(maxTop, Math.round(top || 0)))
+    };
+  }
+
+  function applySettingsPanelPosition(box, left, top, skipPersist) {
+    if (!box) return;
+    var pos = clampSettingsPanelPosition(box, left, top);
+    box.style.left = pos.left + 'px';
+    box.style.top = pos.top + 'px';
+    if (!skipPersist) {
+      var state = loadSettingsPanelState();
+      state.left = pos.left;
+      state.top = pos.top;
+      saveSettingsPanelState(state);
+    }
+  }
+
+  function centerSettingsPanel(box) {
+    if (!box) return;
+    applySettingsPanelPosition(
+      box,
+      (window.innerWidth - box.offsetWidth) / 2,
+      (window.innerHeight - box.offsetHeight) / 2,
+      false
+    );
+  }
+
+  function restoreSettingsPanelPosition(box) {
+    if (!box) return;
+    var state = loadSettingsPanelState();
+    if (typeof state.left === 'number' && typeof state.top === 'number') {
+      applySettingsPanelPosition(box, state.left, state.top, true);
+      return;
+    }
+    centerSettingsPanel(box);
+  }
+
+  function forceThemePreviewHudVisibility(active) {
+    var targets = [];
+
+    function addTarget(el, display) {
+      if (!el || targets.some(function(entry) { return entry.el === el; })) return;
+      targets.push({ el: el, display: display || '' });
+    }
+
+    addTarget(document.getElementById('huds'), 'block');
+    addTarget(document.querySelector('.huds-bottom-right'), 'flex');
+    addTarget(document.querySelector('.huds-bottom-left'), 'flex');
+    addTarget(document.querySelector('.mame-brb-team'), 'block');
+    addTarget(document.getElementById('leaderboard'), 'block');
+    addTarget(document.getElementById('chatbox'), 'block');
+    addTarget(document.getElementById('minimap'), 'block');
+
+    ['leaderboard', 'chatbox', 'minimap'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var parent = el.parentElement;
+      while (parent && parent !== document.body) {
+        if (
+          parent.id === 'huds' ||
+          (parent.classList && (
+            parent.classList.contains('huds-bottom-right') ||
+            parent.classList.contains('huds-bottom-left') ||
+            parent.classList.contains('mame-brb-team')
+          ))
+        ) {
+          addTarget(
+            parent,
+            parent.classList && (
+              parent.classList.contains('huds-bottom-right') ||
+              parent.classList.contains('huds-bottom-left')
+            ) ? 'flex' : 'block'
+          );
+        }
+        parent = parent.parentElement;
+      }
+    });
+
+    targets.forEach(function(entry) {
+      var el = entry.el;
+      if (!el) return;
+      if (active) {
+        if (!el._ryuPreviewHudRestore) {
+          el._ryuPreviewHudRestore = {
+            display: el.style.display || '',
+            visibility: el.style.visibility || '',
+            opacity: el.style.opacity || ''
+          };
+        }
+        el.style.setProperty('display', entry.display || 'block', 'important');
+        el.style.setProperty('visibility', 'visible', 'important');
+        el.style.setProperty('opacity', '1', 'important');
+      } else if (el._ryuPreviewHudRestore) {
+        el.style.display = el._ryuPreviewHudRestore.display;
+        el.style.visibility = el._ryuPreviewHudRestore.visibility;
+        el.style.opacity = el._ryuPreviewHudRestore.opacity;
+        delete el._ryuPreviewHudRestore;
+      }
+    });
+  }
 
   function openRyuSettings(tabName) {
     injectSettingsPanelStyle();
@@ -5290,6 +5936,7 @@
     panel.id = RYU_SP_ID;
     panel.innerHTML = buildSettingsPanelHTML();
     document.body.appendChild(panel);
+    restoreSettingsPanelPosition(panel.querySelector('#ryu-sp-box'));
     wireSettingsPanel(panel);
 
     // Apply theme mode immediately if opening on THEME or RYUTHEME
@@ -5339,6 +5986,8 @@
   function closeRyuSettings() {
     var panel = document.getElementById(RYU_SP_ID);
     if (!panel) return;
+    forceThemePreviewHudVisibility(false);
+    if (panel._ryuCleanupSettingsPanel) panel._ryuCleanupSettingsPanel();
     panel.remove();
   }
 
@@ -5346,10 +5995,14 @@
     var tabsHTML = RYU_SP_TABS.map(function(t) {
       return '<button class="ryu-sp-tab' + (t === _spCurrentTab ? ' ryu-sp-tab-active' : '') + '" data-tab="' + t + '">' + t + '</button>';
     }).join('');
-    return '<div id="ryu-sp-box"><div id="ryu-sp-topbar"><span id="ryu-sp-logo">RYUTEN</span><div id="ryu-sp-topbar-tabs">' + tabsHTML + '</div><div id="ryu-sp-topbar-right"><button id="ryu-sp-preview-btn" title="Toggle transparency" style="flex-shrink:0;height:26px;padding:0 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:rgba(255,255,255,0.6);font-family:\'Noto Sans\',sans-serif;font-size:8px;font-weight:700;letter-spacing:1px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:4px;">👁 PREVIEW</button><button id="ryu-sp-close">&#x2715;</button></div></div><div id="ryu-sp-body"><div id="ryu-sp-sidebar"></div><div id="ryu-sp-content"></div></div></div>';
+    return '<div id="ryu-sp-box"><div id="ryu-sp-topbar"><span id="ryu-sp-logo">RYUTEN</span><div id="ryu-sp-topbar-tabs">' + tabsHTML + '</div><div id="ryu-sp-topbar-right"><button id="ryu-sp-preview-btn" title="Toggle transparency" style="flex-shrink:0;height:26px;padding:0 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:rgba(255,255,255,0.6);font-family:\'Noto Sans\',sans-serif;font-size:8px;font-weight:700;letter-spacing:1px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:4px;">PREVIEW</button><button id="ryu-sp-reset-pos" title="Center panel" style="flex-shrink:0;height:26px;padding:0 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:rgba(255,255,255,0.6);font-family:\'Noto Sans\',sans-serif;font-size:8px;font-weight:700;letter-spacing:1px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:4px;">CENTER</button><button id="ryu-sp-close">&#x2715;</button></div></div><div id="ryu-sp-body"><div id="ryu-sp-sidebar"></div><div id="ryu-sp-content"></div></div></div>';
   }
 
   function wireSettingsPanel(panel) {
+    var spBox = panel.querySelector('#ryu-sp-box');
+    var topbar = panel.querySelector('#ryu-sp-topbar');
+    var previewBtn = panel.querySelector('#ryu-sp-preview-btn');
+    var resetPosBtn = panel.querySelector('#ryu-sp-reset-pos');
     panel.querySelector('#ryu-sp-close').addEventListener('click', function() {
       var nativeBack = document.getElementById('sm-btn-back');
       if (nativeBack) nativeBack.click();
@@ -5357,21 +6010,63 @@
     });
 
     // Preview toggle Ã¢â‚¬â€ makes panel semi-transparent to see game behind it
-    var previewBtn = panel.querySelector('#ryu-sp-preview-btn');
-    var _previewOn = false;
-    var spBox = panel.querySelector('#ryu-sp-box');
+    var state = loadSettingsPanelState();
+    var _previewOn = !!state.preview;
+    function applyPreviewState() {
+      spBox.style.background = _previewOn ? 'rgba(13,17,23,0.56)' : 'rgba(13,17,23,0.92)';
+      spBox.style.backdropFilter = _previewOn ? 'blur(1px)' : 'blur(4px)';
+      spBox.style.webkitBackdropFilter = _previewOn ? 'blur(1px)' : 'blur(4px)';
+      previewBtn.style.background = _previewOn ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)';
+      previewBtn.style.color = _previewOn ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.6)';
+      previewBtn.textContent = _previewOn ? 'PREVIEW ON' : 'PREVIEW';
+      state.preview = _previewOn;
+      saveSettingsPanelState(state);
+    }
+    applyPreviewState();
     previewBtn.addEventListener('click', function() {
       _previewOn = !_previewOn;
-      spBox.style.background = _previewOn
-        ? 'rgba(13,17,23,0.25)'
-        : 'rgba(13,17,23,0.92)';
-      spBox.style.backdropFilter = _previewOn ? 'blur(0px)' : 'blur(4px)';
-      spBox.style.webkitBackdropFilter = _previewOn ? 'blur(0px)' : 'blur(4px)';
-      previewBtn.style.background = _previewOn
-        ? 'rgba(255,255,255,0.10)'
-        : 'rgba(255,255,255,0.06)';
-      previewBtn.style.color = _previewOn ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.6)';
+      applyPreviewState();
     });
+    resetPosBtn.addEventListener('click', function() {
+      centerSettingsPanel(spBox);
+    });
+
+    var dragState = null;
+    topbar.addEventListener('mousedown', function(e) {
+      if (e.button !== 0) return;
+      if (e.target.closest('button, input, select, textarea, a')) return;
+      var rect = spBox.getBoundingClientRect();
+      dragState = { offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top };
+      spBox.classList.add('ryu-sp-dragging');
+      e.preventDefault();
+    });
+    var onDragMove = function(e) {
+      if (!dragState) return;
+      applySettingsPanelPosition(spBox, e.clientX - dragState.offsetX, e.clientY - dragState.offsetY);
+    };
+    var onDragEnd = function() {
+      if (!dragState) return;
+      dragState = null;
+      spBox.classList.remove('ryu-sp-dragging');
+    };
+    var onPanelResize = function() {
+      var rect = spBox.getBoundingClientRect();
+      applySettingsPanelPosition(spBox, rect.left, rect.top, true);
+    };
+    window.addEventListener('mousemove', onDragMove, true);
+    window.addEventListener('mouseup', onDragEnd, true);
+    window.addEventListener('resize', onPanelResize);
+    var previewHudTimer = setInterval(function() {
+      forceThemePreviewHudVisibility(_spCurrentTab === 'THEME' || _spCurrentTab === 'RYUTHEME');
+    }, 160);
+    forceThemePreviewHudVisibility(_spCurrentTab === 'THEME' || _spCurrentTab === 'RYUTHEME');
+    panel._ryuCleanupSettingsPanel = function() {
+      window.removeEventListener('mousemove', onDragMove, true);
+      window.removeEventListener('mouseup', onDragEnd, true);
+      window.removeEventListener('resize', onPanelResize);
+      clearInterval(previewHudTimer);
+      forceThemePreviewHudVisibility(false);
+    };
     panel.querySelectorAll('.ryu-sp-tab').forEach(function(btn) {
       btn.addEventListener('click', function() {
         _spCurrentTab = btn.dataset.tab;
@@ -5384,6 +6079,7 @@
         } else {
           panel.classList.remove('ryu-sp-theme-mode');
         }
+        forceThemePreviewHudVisibility(_spCurrentTab === 'THEME' || _spCurrentTab === 'RYUTHEME');
         if (RYU_SP_NATIVE_TAB[_spCurrentTab] !== undefined) {
           var nt = document.querySelectorAll('.sm-category-selector');
           var idx = RYU_SP_NATIVE_TAB[_spCurrentTab];
@@ -6244,6 +6940,10 @@
       if (globalThis.__ryuRefreshAll) globalThis.__ryuRefreshAll();
     }
     function saveT(key, val) {
+      if (key === 'proximityVoiceOn' && val && globalThis.__ryuCanUseRelayPerk && !globalThis.__ryuCanUseRelayPerk('proxVoice')) {
+        if (globalThis.__ryuShowToast) globalThis.__ryuShowToast('Sign in with Google to enable proximity voice.', 'error');
+        return;
+      }
       var t = loadT(); t[key] = val;
       localStorage.setItem('ryuTheme', JSON.stringify(t));
       if (globalThis.__ryuRefreshMassSettings && (
@@ -6627,7 +7327,7 @@
         { label: 'RyuTheme Kill Feed', type: 'toggle',       key: 'killFeedOn',      def: false },
         { label: 'Kill Feed Avatar',   type: 'kfAvatar',     key: 'kfAvatar',        def: '' },
         { label: 'Teammate Indicator', type: 'toggle',       key: 'teammateIndicatorOn', def: true },
-        { label: 'Minimap Plus',       type: 'toggle',       key: 'minimapPlusOn', def: true },
+        { label: 'Minimap Plus',       type: 'minimapPlusExpand', key: 'minimapPlusOn', def: true },
         { label: 'World Sectors',      type: 'sectorExpand', key: 'sectorOverlayOn', def: false },
         { label: 'Emotes',             type: 'toggle', key: 'emotesOn',          def: true },
         { label: 'Team Cell Colors',   type: 'teamColorExpand' },
@@ -6726,8 +7426,8 @@
         { label: 'Input Device',        type: 'deviceSelect', key: 'proximityVoiceInputDeviceId', deviceKind: 'input', def: 'default' },
         { label: 'Output Device',       type: 'deviceSelect', key: 'proximityVoiceOutputDeviceId', deviceKind: 'output', def: 'default' },
         { label: 'Voice Volume',        type: 'slider', key: 'proximityVoiceVolume', def: 100, min: 0, max: 100 },
-        { label: 'Clear Radius',        type: 'slider', key: 'proximityVoiceNearRadius', def: 1400, min: 400, max: 4000 },
-        { label: 'Fade Radius',         type: 'slider', key: 'proximityVoiceFarRadius', def: 5200, min: 1200, max: 9000 }
+        { label: 'Full Volume Range',    type: 'slider', key: 'proximityVoiceNearRadius', def: 1400, min: 400, max: 4000 },
+        { label: 'Max Hear Range',      type: 'slider', key: 'proximityVoiceFarRadius', def: 5200, min: 1200, max: 9000 }
       ]
     };
 
@@ -8183,6 +8883,88 @@
           mmSub.style.display = _mmOpen ? 'block' : 'none';
           mmChev.style.transform = _mmOpen ? 'rotate(180deg)' : '';
           mmChev.style.color = _mmOpen ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.35)';
+        });
+
+        return;
+      }
+
+      if (def.type === 'minimapPlusExpand') {
+        var mpOn = t[def.key] !== undefined ? !!t[def.key] : !!def.def;
+        var mpShowSkins = !!t.minimapPlusShowSkins;
+
+        var mpRow = document.createElement('div');
+        mpRow.className = 'ryu-sp-row';
+        var mpLbl = document.createElement('div');
+        mpLbl.className = 'ryu-sp-label';
+        mpLbl.textContent = 'Minimap Plus';
+        mpRow.appendChild(mpLbl);
+        var mpCtrl = document.createElement('div');
+        mpCtrl.className = 'ryu-sp-ctrl';
+        mpCtrl.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+        var mpTog = document.createElement('div');
+        mpTog.className = 'ryu-sp-toggle' + (mpOn ? ' ryu-sp-toggle-on' : '');
+        var mpDot = document.createElement('div');
+        mpDot.className = 'ryu-sp-toggle-dot';
+        mpTog.appendChild(mpDot);
+        mpTog.addEventListener('click', function() {
+          var cur = mpTog.classList.contains('ryu-sp-toggle-on');
+          mpTog.classList.toggle('ryu-sp-toggle-on', !cur);
+          saveT('minimapPlusOn', !cur);
+          refreshMinimapPlusDisabledState();
+        });
+
+        var mpChev = document.createElement('div');
+        mpChev.style.cssText = 'width:16px;height:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:rgba(255,255,255,0.35);font-size:9px;transition:transform 0.2s;flex-shrink:0;';
+        mpChev.textContent = '\u25BC';
+
+        mpCtrl.appendChild(mpTog);
+        mpCtrl.appendChild(mpChev);
+        mpRow.appendChild(mpCtrl);
+        content.appendChild(mpRow);
+
+        var mpSub = document.createElement('div');
+        mpSub.style.cssText = 'display:none;padding:2px 0 6px 8px;border-left:1px solid rgba(255,255,255,0.07);margin-left:4px;';
+
+        var skinsRow = document.createElement('div');
+        skinsRow.className = 'ryu-sp-row';
+        skinsRow.style.cssText = 'padding:4px 0;min-height:28px;';
+        var skinsLbl = document.createElement('div');
+        skinsLbl.className = 'ryu-sp-label';
+        skinsLbl.style.fontSize = '11px';
+        skinsLbl.textContent = 'Show Skins';
+        skinsRow.appendChild(skinsLbl);
+        var skinsCtrl = document.createElement('div');
+        skinsCtrl.className = 'ryu-sp-ctrl';
+        var skinsTog = document.createElement('div');
+        skinsTog.className = 'ryu-sp-toggle' + (mpShowSkins ? ' ryu-sp-toggle-on' : '');
+        var skinsDot = document.createElement('div');
+        skinsDot.className = 'ryu-sp-toggle-dot';
+        skinsTog.appendChild(skinsDot);
+        skinsTog.addEventListener('click', function() {
+          var cur = skinsTog.classList.contains('ryu-sp-toggle-on');
+          skinsTog.classList.toggle('ryu-sp-toggle-on', !cur);
+          saveT('minimapPlusShowSkins', !cur);
+        });
+        skinsCtrl.appendChild(skinsTog);
+        skinsRow.appendChild(skinsCtrl);
+        mpSub.appendChild(skinsRow);
+        content.appendChild(mpSub);
+
+        function refreshMinimapPlusDisabledState() {
+          var disabled = !mpTog.classList.contains('ryu-sp-toggle-on');
+          mpSub.style.opacity = disabled ? '0.45' : '1';
+          skinsCtrl.style.pointerEvents = disabled ? 'none' : '';
+        }
+        refreshMinimapPlusDisabledState();
+
+        var _mpOpen = false;
+        mpChev.addEventListener('click', function() {
+          _mpOpen = !_mpOpen;
+          mpSub.style.display = _mpOpen ? 'block' : 'none';
+          mpChev.style.transform = _mpOpen ? 'rotate(180deg)' : '';
+          mpChev.style.color = _mpOpen ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.35)';
+          refreshMinimapPlusDisabledState();
         });
 
         return;

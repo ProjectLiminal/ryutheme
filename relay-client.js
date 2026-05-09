@@ -21,6 +21,12 @@
   let _cmdFlushTimer = null;
   let _cmdSeq = 0;
   let _profileId = '';
+  let _signedInAuthState = null;
+  let _bridgeReqSeq = 0;
+  let _authBootstrapPromise = null;
+  let _accountId = '';
+  let _deviceToken = '';
+  let _accountInitPromise = null;
   let _pendingBadgeRequest = false;
   const _messageSubscribers = new Set();
 
@@ -115,9 +121,222 @@
     return _profileId;
   }
 
+  function getRelayHttpBase() {
+    return RELAY_URL.replace(/^wss:/i, 'https:').replace(/^ws:/i, 'http:').replace(/\/relay\/?$/i, '');
+  }
+
+  const _bridgePending = new Map();
+
+  window.addEventListener('message', function(event) {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (!data || data.source !== 'ryu-extension-bridge' || !data.type) return;
+
+    if (data.type === 'ryu-auth-response' && data.payload && data.payload.id) {
+      const pending = _bridgePending.get(data.payload.id);
+      if (!pending) return;
+      _bridgePending.delete(data.payload.id);
+      if (data.payload.ok) pending.resolve(data.payload.result || null);
+      else pending.reject(new Error(data.payload.error || 'Bridge auth request failed.'));
+      return;
+    }
+
+    if (data.type === 'ryu-auth-state') {
+      applySignedInAuthState(data.payload || null);
+    }
+  });
+
+  function bridgeRequest(action, payload) {
+    return new Promise(function(resolve, reject) {
+      const id = 'ryu-auth-' + (++_bridgeReqSeq) + '-' + Date.now();
+      const timeout = setTimeout(function() {
+        _bridgePending.delete(id);
+        reject(new Error('Timed out waiting for extension auth bridge.'));
+      }, 15000);
+      _bridgePending.set(id, {
+        resolve: function(value) { clearTimeout(timeout); resolve(value); },
+        reject: function(err) { clearTimeout(timeout); reject(err); }
+      });
+      window.postMessage({
+        source: 'ryu-main',
+        type: 'ryu-auth-request',
+        id: id,
+        action: action,
+        payload: payload || null
+      }, '*');
+    });
+  }
+
+  function sanitizeSignedInAuthState(state) {
+    const next = state && typeof state === 'object' ? state : {};
+    const accountId = String(next.accountId || '').trim();
+    const deviceToken = String(next.deviceToken || '').trim();
+    const provider = String(next.provider || '').trim();
+    if (!next.signedIn || provider !== 'google') return null;
+    if (!/^acc_[a-f0-9]{24}$/i.test(accountId) || !/^dt_[a-f0-9]{48}$/i.test(deviceToken)) return null;
+    return {
+      signedIn: true,
+      provider: 'google',
+      accountId: accountId,
+      deviceToken: deviceToken,
+      email: String(next.email || '').trim(),
+      name: String(next.name || '').trim(),
+      picture: String(next.picture || '').trim(),
+      googleSub: String(next.googleSub || '').trim(),
+      displayName: String(next.displayName || '').trim()
+    };
+  }
+
+  function clearBadgeAccountState() {
+    globalThis.__ryuBadgeEntitlements = {};
+    Object.keys(RYU_BADGE_CONFIG).forEach(function(badgeId) {
+      try { localStorage.removeItem(getBadgeEntitlementStorageKey(badgeId)); } catch (_) {}
+    });
+    clearRelayBadge('', _clientId);
+    applyOwnApprovedBadge('');
+    dispatchBadgeEntitlementsChanged();
+    if (globalThis.__ryuRefreshBadgeShop) globalThis.__ryuRefreshBadgeShop();
+  }
+
+  function getSignedInAuthState() {
+    return _signedInAuthState;
+  }
+
+  function hasSignedInRelayAccount() {
+    return !!(_signedInAuthState && _signedInAuthState.accountId && _signedInAuthState.deviceToken);
+  }
+
+  function getRelayAccountId() {
+    return hasSignedInRelayAccount() ? _signedInAuthState.accountId : getAccountId();
+  }
+
+  function getRelayDeviceToken() {
+    return hasSignedInRelayAccount() ? _signedInAuthState.deviceToken : getDeviceToken();
+  }
+
+  function getPublicAuthState() {
+    if (!hasSignedInRelayAccount()) {
+      return {
+        signedIn: false,
+        provider: '',
+        accountId: '',
+        email: '',
+        name: '',
+        picture: '',
+        googleSub: '',
+        displayName: ''
+      };
+    }
+    return Object.assign({}, _signedInAuthState);
+  }
+
+  function applySignedInAuthState(state) {
+    const next = sanitizeSignedInAuthState(state);
+    const prevAccountId = _signedInAuthState && _signedInAuthState.accountId ? _signedInAuthState.accountId : '';
+    const nextAccountId = next && next.accountId ? next.accountId : '';
+    _signedInAuthState = next;
+    globalThis.__ryuAuthState = getPublicAuthState();
+    globalThis.__ryuAccountId = getRelayAccountId();
+    if (prevAccountId !== nextAccountId) {
+      clearBadgeAccountState();
+      _lastPresenceSig = '';
+      if (_relayWs && _relayWs.readyState === 1) sendPresence(true);
+    }
+  }
+
+  function ensureExtensionAuthState() {
+    if (_authBootstrapPromise) return _authBootstrapPromise;
+    _authBootstrapPromise = bridgeRequest('get_state').then(function(state) {
+      applySignedInAuthState(state || null);
+      return getPublicAuthState();
+    }).catch(function(err) {
+      console.warn('[RyuRelay] extension auth bootstrap failed', err);
+      applySignedInAuthState(null);
+      return getPublicAuthState();
+    });
+    return _authBootstrapPromise;
+  }
+
+  function getAccountId() {
+    if (_accountId) return _accountId;
+    try {
+      var stored = localStorage.getItem('_ryuAccountId');
+      if (stored && /^acc_[a-f0-9]{24}$/i.test(stored)) {
+        _accountId = stored;
+        return _accountId;
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  function getDeviceToken() {
+    if (_deviceToken) return _deviceToken;
+    try {
+      var stored = localStorage.getItem('_ryuDeviceToken');
+      if (stored && /^dt_[a-f0-9]{48}$/i.test(stored)) {
+        _deviceToken = stored;
+        return _deviceToken;
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  function setAnonymousAccount(accountId, deviceToken) {
+    if (!/^acc_[a-f0-9]{24}$/i.test(String(accountId || ''))) return false;
+    if (!/^dt_[a-f0-9]{48}$/i.test(String(deviceToken || ''))) return false;
+    _accountId = String(accountId);
+    _deviceToken = String(deviceToken);
+    try {
+      localStorage.setItem('_ryuAccountId', _accountId);
+      localStorage.setItem('_ryuDeviceToken', _deviceToken);
+    } catch (_) {}
+    return true;
+  }
+
+  function ensureAnonymousAccount() {
+    if (_accountInitPromise) return _accountInitPromise;
+    _accountInitPromise = (async function() {
+      try {
+        const res = await fetch(getRelayHttpBase() + '/auth/anonymous', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceToken: getDeviceToken() || ''
+          })
+        });
+        if (!res.ok) throw new Error('Anonymous auth failed with status ' + res.status);
+        const data = await res.json();
+        if (!data || !data.ok) throw new Error((data && data.error) || 'Anonymous auth failed');
+        if (!setAnonymousAccount(data.accountId, data.deviceToken)) {
+          throw new Error('Anonymous auth returned invalid credentials');
+        }
+        globalThis.__ryuAccountId = _accountId;
+        return {
+          accountId: _accountId,
+          deviceToken: _deviceToken,
+          isNewAccount: !!data.isNewAccount
+        };
+      } catch (err) {
+        console.warn('[RyuRelay] anonymous account bootstrap failed', err);
+        return {
+          accountId: getAccountId(),
+          deviceToken: getDeviceToken(),
+          isNewAccount: false
+        };
+      } finally {
+        globalThis.__ryuAccountId = getAccountId();
+      }
+    })();
+    return _accountInitPromise;
+  }
+
   // raw send — queues if not ready
   function relaySend(obj) {
-    const data = JSON.stringify(Object.assign({ clientId: _clientId }, obj));
+    const data = JSON.stringify(Object.assign({
+      clientId: _clientId,
+      accountId: getRelayAccountId() || undefined,
+      deviceToken: getRelayDeviceToken() || undefined
+    }, obj));
     if (_relayWs && _relayWs.readyState === 1) {
       try { _relayWs.send(data); return true; } catch (_) {}
     }
@@ -131,7 +350,11 @@
   function relaySendDirect(obj) {
     if (!_relayWs || _relayWs.readyState !== 1) return false;
     try {
-      _relayWs.send(JSON.stringify(Object.assign({ clientId: _clientId }, obj)));
+      _relayWs.send(JSON.stringify(Object.assign({
+        clientId: _clientId,
+        accountId: getRelayAccountId() || undefined,
+        deviceToken: getRelayDeviceToken() || undefined
+      }, obj)));
       return true;
     } catch (_) {
       return false;
@@ -191,6 +414,7 @@
     if (!isRyuBadgeId(badgeId)) return;
     globalThis.__ryuBadgeEntitlements[badgeId] = unlocked !== false;
     try { localStorage.setItem(getBadgeEntitlementStorageKey(badgeId), unlocked === false ? '0' : '1'); } catch (_) {}
+    dispatchBadgeEntitlementsChanged();
   }
 
   function syncBadgeEntitlements(entitlements) {
@@ -202,6 +426,18 @@
     Object.keys(RYU_BADGE_CONFIG).forEach(function(badgeId) {
       setBadgeEntitlement(badgeId, !!owned[badgeId]);
     });
+    dispatchBadgeEntitlementsChanged();
+  }
+
+  function dispatchBadgeEntitlementsChanged() {
+    try {
+      window.dispatchEvent(new CustomEvent('ryu-badge-entitlements-changed', {
+        detail: {
+          entitlements: Object.assign({}, globalThis.__ryuBadgeEntitlements || {}),
+          activeBadge: getOwnActiveBadge()
+        }
+      }));
+    } catch (_) {}
   }
 
   function setRelayBadge(user, clientId, badgeId) {
@@ -255,6 +491,7 @@
       if (globalThis.__ryuPe && globalThis.__ryuPe._2874) globalThis.__ryuPe._2874.title = '';
       if (globalThis.__ryuBe && globalThis.__ryuBe._1059) globalThis.__ryuBe._1059._6302 = '';
       try { localStorage.removeItem('ryuActiveCustomBadge'); } catch (_) {}
+      dispatchBadgeEntitlementsChanged();
       return;
     }
     if (!isRyuBadgeId(badgeId)) return;
@@ -271,6 +508,7 @@
       globalThis.__ryuCustomActiveTitle = badgeId;
     }
     try { localStorage.setItem('ryuActiveCustomBadge', badgeId); } catch (_) {}
+    dispatchBadgeEntitlementsChanged();
   }
 
   function handleBadgeState(msg) {
@@ -493,17 +731,21 @@
           setTimeout(function() { announce(isReannounce, attempts + 1); }, 200);
           return;
         }
-        try {
-          _relayWs.send(JSON.stringify({
-            type: 'join',
-            clientId: _clientId,
-            profileId: getProfileId(),
-            user: user,
-            gameName: getGameName(),
-            gameTag: getGameTag(),
-            activeBadge: getOwnActiveBadge()
-          }));
-        } catch (_) {}
+        Promise.allSettled([ensureAnonymousAccount(), ensureExtensionAuthState()]).finally(function() {
+          try {
+            _relayWs.send(JSON.stringify({
+              type: 'join',
+              clientId: _clientId,
+              accountId: getRelayAccountId(),
+              deviceToken: getRelayDeviceToken(),
+              profileId: getProfileId(),
+              user: user,
+              gameName: getGameName(),
+              gameTag: getGameTag(),
+              activeBadge: getOwnActiveBadge()
+            }));
+          } catch (_) {}
+        });
         // broadcast kill feed avatar if set
         const _kfPic = globalThis.__ryuKfProfilePic;
         if (_kfPic) {
@@ -553,6 +795,8 @@
     const payload = {
       type: 'presence',
       clientId: _clientId,
+      accountId: getRelayAccountId(),
+      deviceToken: getRelayDeviceToken(),
       profileId: getProfileId(),
       user,
       gameName: getGameName(),
@@ -574,6 +818,41 @@
   globalThis.__ryuGetRoom     = getRoomId;
   globalThis.__ryuGetUsername = getUsername;
   globalThis.__ryuClientId    = _clientId;
+  globalThis.__ryuAccountId   = getRelayAccountId();
+  globalThis.__ryuAuthState   = getPublicAuthState();
+  globalThis.__ryuGetAuthState = function() {
+    return getPublicAuthState();
+  };
+  globalThis.__ryuCanUseRelayPerk = function(perk) {
+    if (perk === 'badges' || perk === 'proxVoice') return hasSignedInRelayAccount();
+    return true;
+  };
+  globalThis.__ryuSignInWithGoogle = function() {
+    return bridgeRequest('google_sign_in').then(function(state) {
+      applySignedInAuthState(state || null);
+      globalThis.__ryuAccountId = getRelayAccountId();
+      if (globalThis.__ryuShowToast && hasSignedInRelayAccount()) {
+        const label = (_signedInAuthState && (_signedInAuthState.name || _signedInAuthState.email)) || 'Google account';
+        globalThis.__ryuShowToast('Signed in as ' + label + '.', 'success');
+      }
+      return getPublicAuthState();
+    });
+  };
+  globalThis.__ryuSignOut = function() {
+    return bridgeRequest('sign_out').then(function(state) {
+      applySignedInAuthState(state || null);
+      globalThis.__ryuAccountId = getRelayAccountId();
+      if (globalThis.__ryuShowToast) globalThis.__ryuShowToast('Signed out of Ryutheme account features.', 'success');
+      return getPublicAuthState();
+    });
+  };
+  globalThis.__ryuSetDisplayName = function(displayName) {
+    return bridgeRequest('set_display_name', { displayName: String(displayName || '').trim() }).then(function(state) {
+      applySignedInAuthState(state || null);
+      globalThis.__ryuAccountId = getRelayAccountId();
+      return getPublicAuthState();
+    });
+  };
   globalThis.__ryuRelaySendMessage = function(obj, useDirect) {
     if (!obj || typeof obj !== 'object') return false;
     return useDirect ? relaySendDirect(obj) : relaySend(obj);
@@ -602,6 +881,10 @@
   globalThis.__ryuHasBadgeEntitlement = hasBadgeEntitlement;
   globalThis.__ryuRequestBadgeEquip = function(badgeId, password) {
     if (badgeId && !isRyuBadgeId(badgeId)) return false;
+    if (!hasSignedInRelayAccount()) {
+      if (globalThis.__ryuShowToast) globalThis.__ryuShowToast('Sign in with Google to use Ryutheme badges.', 'error');
+      return false;
+    }
     const user = getUsername();
     const type = password ? 'badge_unlock' : 'badge_equip';
     const payload = { type, user, badgeId, profileId: getProfileId(), gameName: getGameName(), gameTag: getGameTag() };
@@ -613,6 +896,10 @@
     _pendingBadgeRequest = true;
     return true;
   };
+
+  Promise.allSettled([ensureAnonymousAccount(), ensureExtensionAuthState()]).then(function() {
+    globalThis.__ryuAccountId = getRelayAccountId();
+  });
 
   // commander text broadcast
   globalThis.__ryuRelaySend = function(x, y, text, imageUrl) {
