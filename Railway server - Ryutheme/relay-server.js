@@ -4,26 +4,100 @@
 
 const { WebSocketServer, WebSocket } = require('ws');
 const http = require('http');
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
+const { OAuth2Client } = require('google-auth-library');
+const db = require('./db');
 
 const PORT = process.env.PORT || 3001;
-const TESTER_PASSWORD = process.env.RYU_TESTER_BADGE_PASSWORD || '';
-const BADGE_STATE_FILE = process.env.RYU_BADGE_STATE_FILE || path.join(__dirname, 'ryutheme-badges.json');
-const BADGES = {
-  DM: 'TITLE_RYUTHEME_DM',
-  TESTER: 'TITLE_RYUTHEME_TESTER'
+const GOOGLE_CLIENT_IDS = String(process.env.GOOGLE_CLIENT_IDS || '')
+  .split(',')
+  .map(function(value) { return String(value || '').trim(); })
+  .filter(Boolean);
+const googleAuthClient = new OAuth2Client();
+const BADGE_CONFIG = {
+  TITLE_RYUTHEME_DM: {
+    name: 'RYUTHEME DM',
+    free: true
+  },
+  TITLE_RYUTHEME_TESTER: {
+    name: 'RYUTHEME Tester',
+    passwordEnv: 'RYU_TESTER_BADGE_PASSWORD'
+  }
 };
-const VALID_BADGES = new Set(Object.values(BADGES));
+const VALID_BADGES = new Set(Object.keys(BADGE_CONFIG));
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   if (req.url === '/health') {
-    res.writeHead(200);
-    res.end('ok');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      ok: true,
+      databaseConfigured: db.hasDatabase
+    }));
     return;
   }
-  res.writeHead(200);
+
+  if (req.method === 'POST' && req.url === '/auth/anonymous') {
+    if (!db.hasDatabase) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'Database is not configured.' }));
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(req);
+      const result = await findOrCreateAnonymousAccount(body && body.deviceToken);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: true,
+        accountId: result.accountId,
+        deviceToken: result.deviceToken,
+        isNewAccount: result.isNewAccount
+      }));
+    } catch (err) {
+      console.error('[relay] anonymous auth failed:', err.message);
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: err.message || 'Anonymous auth failed.' }));
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/auth/google') {
+    if (!db.hasDatabase) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'Database is not configured.' }));
+      return;
+    }
+    if (!GOOGLE_CLIENT_IDS.length) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'Google sign-in is not configured on the server.' }));
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(req);
+      const result = await signInWithGoogle(body || {});
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: true,
+        provider: 'google',
+        accountId: result.accountId,
+        deviceToken: result.deviceToken,
+        email: result.email,
+        emailVerified: result.emailVerified,
+        name: result.name,
+        picture: result.picture,
+        googleSub: result.googleSub,
+        isNewAccount: result.isNewAccount
+      }));
+    } catch (err) {
+      console.error('[relay] google auth failed:', err.message);
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: err.message || 'Google sign-in failed.' }));
+    }
+    return;
+  }
+
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end('ryutheme relay');
 });
 
@@ -43,23 +117,11 @@ const BROADCAST_TYPES = new Set(['join', 'presence', 'cmd', 'emote', 'kf_avatar'
 const TARGETED_TYPES = new Set(['voice_offer', 'voice_answer', 'voice_ice']);
 
 let nextId = 0;
-let badgeState = loadBadgeState();
 
-function loadBadgeState() {
-  try {
-    return JSON.parse(fs.readFileSync(BADGE_STATE_FILE, 'utf8'));
-  } catch (_) {
-    return { entitlements: {}, active: {} };
-  }
-}
-
-function saveBadgeState() {
-  try {
-    fs.writeFileSync(BADGE_STATE_FILE, JSON.stringify(badgeState, null, 2));
-  } catch (err) {
-    console.warn('[relay] failed to save badge state:', err.message);
-  }
-}
+// in-memory badge state for non-account sessions (pid:/user: identity keys)
+// account-backed sessions (acc:) use the database instead
+const memEntitlements = new Map(); // identityKey -> Set<badgeId>
+const memActive = new Map();       // identityKey -> badgeId
 
 function normalizeUser(user) {
   return String(user || '').trim().toLowerCase();
@@ -69,8 +131,21 @@ function safeUser(user) {
   return String(user || '').trim().slice(0, 32);
 }
 
+function safeDisplayName(name) {
+  return String(name || '').trim().slice(0, 32);
+}
+
 function safeClientId(clientId) {
   return String(clientId || '').trim().replace(/[^\w-]/g, '').slice(0, 80);
+}
+
+function safeProfileId(profileId) {
+  return String(profileId || '').trim().replace(/[^\w-]/g, '').slice(0, 80);
+}
+
+function safeAccountId(accountId) {
+  const value = String(accountId || '').trim();
+  return /^acc_[a-f0-9]{24}$/i.test(value) ? value : '';
 }
 
 function safeBadgeId(badgeId) {
@@ -85,14 +160,333 @@ function timingSafeEquals(a, b) {
   return crypto.timingSafeEqual(left, right);
 }
 
-function hasBadgeEntitlement(userKey, badgeId) {
-  if (badgeId === BADGES.DM) return true;
-  return !!(badgeState.entitlements[userKey] && badgeState.entitlements[userKey][badgeId]);
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', function(chunk) {
+      raw += chunk;
+      if (raw.length > 1024 * 64) {
+        reject(new Error('Request body is too large.'));
+        req.destroy();
+      }
+    });
+    req.on('end', function() {
+      if (!raw) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(raw));
+      } catch (_) {
+        reject(new Error('Invalid JSON body.'));
+      }
+    });
+    req.on('error', function(err) {
+      reject(err);
+    });
+  });
 }
 
-function grantBadgeEntitlement(userKey, badgeId) {
-  badgeState.entitlements[userKey] = badgeState.entitlements[userKey] || {};
-  badgeState.entitlements[userKey][badgeId] = true;
+function makePublicAccountId() {
+  return 'acc_' + crypto.randomBytes(12).toString('hex');
+}
+
+function makeDeviceToken() {
+  return 'dt_' + crypto.randomBytes(24).toString('hex');
+}
+
+function hashDeviceToken(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
+}
+
+async function findOrCreateAnonymousAccount(deviceToken) {
+  const normalizedToken = String(deviceToken || '').trim();
+  if (normalizedToken) {
+    const tokenHash = hashDeviceToken(normalizedToken);
+    const existing = await db.query(`
+      SELECT users.public_id
+      FROM devices
+      INNER JOIN users ON users.id = devices.user_id
+      WHERE devices.device_token_hash = $1
+      LIMIT 1
+    `, [tokenHash]);
+
+    if (existing.rows[0]) {
+      await db.query(`
+        UPDATE devices
+        SET last_seen_at = NOW()
+        WHERE device_token_hash = $1
+      `, [tokenHash]);
+
+      return {
+        accountId: existing.rows[0].public_id,
+        deviceToken: normalizedToken,
+        isNewAccount: false
+      };
+    }
+  }
+
+  const nextDeviceToken = makeDeviceToken();
+  const nextDeviceTokenHash = hashDeviceToken(nextDeviceToken);
+  const nextAccountId = makePublicAccountId();
+
+  const insertedUser = await db.query(`
+    INSERT INTO users (public_id)
+    VALUES ($1)
+    RETURNING id, public_id
+  `, [nextAccountId]);
+
+  await db.query(`
+    INSERT INTO devices (user_id, device_token_hash)
+    VALUES ($1, $2)
+  `, [insertedUser.rows[0].id, nextDeviceTokenHash]);
+
+  return {
+    accountId: insertedUser.rows[0].public_id,
+    deviceToken: nextDeviceToken,
+    isNewAccount: true
+  };
+}
+
+async function authenticateAnonymousAccount(accountId, deviceToken) {
+  const safeId = safeAccountId(accountId);
+  const normalizedToken = String(deviceToken || '').trim();
+  if (!safeId || !normalizedToken || !db.hasDatabase) return null;
+
+  const tokenHash = hashDeviceToken(normalizedToken);
+  const result = await db.query(`
+    SELECT users.public_id
+    FROM devices
+    INNER JOIN users ON users.id = devices.user_id
+    WHERE users.public_id = $1
+      AND devices.device_token_hash = $2
+    LIMIT 1
+  `, [safeId, tokenHash]);
+
+  if (!result.rows[0]) return null;
+
+  await db.query(`
+    UPDATE devices
+    SET last_seen_at = NOW()
+    WHERE device_token_hash = $1
+  `, [tokenHash]);
+
+  return {
+    accountId: result.rows[0].public_id
+  };
+}
+
+async function fetchGoogleUserInfoFromAccessToken(accessToken) {
+  const token = String(accessToken || '').trim();
+  if (!token) throw new Error('Missing Google access token.');
+
+  const response = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+    headers: {
+      Authorization: 'Bearer ' + token
+    }
+  });
+  const payload = await response.json().catch(function() { return null; });
+  if (!response.ok || !payload) {
+    throw new Error((payload && payload.error_description) || (payload && payload.error) || 'Failed to fetch Google user profile.');
+  }
+  return payload;
+}
+
+async function verifyGoogleIdToken(idToken) {
+  const token = String(idToken || '').trim();
+  if (!token) throw new Error('Missing Google ID token.');
+
+  const ticket = await googleAuthClient.verifyIdToken({
+    idToken: token,
+    audience: GOOGLE_CLIENT_IDS
+  });
+  const payload = ticket.getPayload();
+  if (!payload) throw new Error('Invalid Google ID token payload.');
+  return payload;
+}
+
+async function signInWithGoogle(authPayload) {
+  let payload = null;
+  const accessToken = authPayload && authPayload.accessToken;
+  const idToken = authPayload && authPayload.idToken;
+
+  if (accessToken) {
+    payload = await fetchGoogleUserInfoFromAccessToken(accessToken);
+  } else if (idToken) {
+    payload = await verifyGoogleIdToken(idToken);
+  } else {
+    throw new Error('Missing Google token.');
+  }
+
+  const googleSub = String(payload.sub || '').trim();
+  if (!googleSub) throw new Error('Google account is missing a subject identifier.');
+
+  const email = String(payload.email || '').trim();
+  const name = String(payload.name || '').trim();
+  const picture = String(payload.picture || '').trim();
+  const emailVerified = !!payload.email_verified;
+
+  const existing = await db.query(`
+    SELECT users.id, users.public_id
+    FROM google_accounts
+    INNER JOIN users ON users.id = google_accounts.user_id
+    WHERE google_accounts.google_sub = $1
+    LIMIT 1
+  `, [googleSub]);
+
+  let userId = 0;
+  let accountId = '';
+  let isNewAccount = false;
+
+  if (existing.rows[0]) {
+    userId = Number(existing.rows[0].id);
+    accountId = String(existing.rows[0].public_id || '');
+    await db.query(`
+      UPDATE google_accounts
+      SET email = $2,
+          email_verified = $3,
+          name = $4,
+          picture = $5,
+          updated_at = NOW()
+      WHERE google_sub = $1
+    `, [googleSub, email || null, emailVerified, name || null, picture || null]);
+  } else {
+    const nextAccountId = makePublicAccountId();
+    const insertedUser = await db.query(`
+      INSERT INTO users (public_id)
+      VALUES ($1)
+      RETURNING id, public_id
+    `, [nextAccountId]);
+    userId = Number(insertedUser.rows[0].id);
+    accountId = String(insertedUser.rows[0].public_id || '');
+    await db.query(`
+      INSERT INTO google_accounts (user_id, google_sub, email, email_verified, name, picture)
+      VALUES ($1, $2, $3, $4, $5, $6)
+    `, [userId, googleSub, email || null, emailVerified, name || null, picture || null]);
+    isNewAccount = true;
+  }
+
+  const deviceToken = makeDeviceToken();
+  const deviceTokenHash = hashDeviceToken(deviceToken);
+  await db.query(`
+    INSERT INTO devices (user_id, device_token_hash, last_seen_at)
+    VALUES ($1, $2, NOW())
+  `, [userId, deviceTokenHash]);
+
+  return {
+    provider: 'google',
+    accountId,
+    deviceToken,
+    email,
+    emailVerified,
+    name,
+    picture,
+    googleSub,
+    isNewAccount
+  };
+}
+
+async function getUserIdByIdentityKey(identityKey) {
+  if (!identityKey.startsWith('acc:') || !db.hasDatabase) return null;
+  const publicId = identityKey.slice(4);
+  const result = await db.query(
+    'SELECT id FROM users WHERE public_id = $1 LIMIT 1',
+    [publicId]
+  );
+  return result.rows[0] ? Number(result.rows[0].id) : null;
+}
+
+async function hasBadgeEntitlement(identityKey, badgeId) {
+  if (identityKey.startsWith('acc:') && db.hasDatabase) {
+    const userId = await getUserIdByIdentityKey(identityKey);
+    if (!userId) return false;
+    const result = await db.query(
+      'SELECT 1 FROM badge_entitlements WHERE user_id = $1 AND badge_id = $2 LIMIT 1',
+      [userId, badgeId]
+    );
+    return result.rows.length > 0;
+  }
+  const owned = memEntitlements.get(identityKey);
+  return !!(owned && owned.has(badgeId));
+}
+
+async function grantBadgeEntitlement(identityKey, badgeId) {
+  if (identityKey.startsWith('acc:') && db.hasDatabase) {
+    const userId = await getUserIdByIdentityKey(identityKey);
+    if (!userId) return;
+    await db.query(
+      'INSERT INTO badge_entitlements (user_id, badge_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [userId, badgeId]
+    );
+    return;
+  }
+  if (!memEntitlements.has(identityKey)) memEntitlements.set(identityKey, new Set());
+  memEntitlements.get(identityKey).add(badgeId);
+}
+
+async function setActiveBadge(identityKey, badgeId) {
+  if (identityKey.startsWith('acc:') && db.hasDatabase) {
+    const userId = await getUserIdByIdentityKey(identityKey);
+    if (!userId) return;
+    if (badgeId) {
+      await db.query(`
+        INSERT INTO badge_active (user_id, badge_id, set_at)
+        VALUES ($1, $2, NOW())
+        ON CONFLICT (user_id) DO UPDATE SET badge_id = EXCLUDED.badge_id, set_at = NOW()
+      `, [userId, badgeId]);
+    } else {
+      await db.query('DELETE FROM badge_active WHERE user_id = $1', [userId]);
+    }
+    return;
+  }
+  if (badgeId) memActive.set(identityKey, badgeId);
+  else memActive.delete(identityKey);
+}
+
+async function getActiveBadge(identityKey) {
+  if (identityKey.startsWith('acc:') && db.hasDatabase) {
+    const userId = await getUserIdByIdentityKey(identityKey);
+    if (!userId) return '';
+    const result = await db.query(
+      'SELECT badge_id FROM badge_active WHERE user_id = $1 LIMIT 1',
+      [userId]
+    );
+    return result.rows[0] ? safeBadgeId(result.rows[0].badge_id) : '';
+  }
+  return safeBadgeId(memActive.get(identityKey) || '');
+}
+
+async function getBadgeEntitlements(identityKey) {
+  if (identityKey.startsWith('acc:') && db.hasDatabase) {
+    const userId = await getUserIdByIdentityKey(identityKey);
+    if (!userId) return [];
+    const result = await db.query(
+      'SELECT badge_id FROM badge_entitlements WHERE user_id = $1',
+      [userId]
+    );
+    return result.rows.map(function(r) { return r.badge_id; }).filter(function(id) { return VALID_BADGES.has(id); });
+  }
+  const owned = memEntitlements.get(identityKey) || new Set();
+  return [...owned].filter(function(id) { return VALID_BADGES.has(id); });
+}
+
+function getBadgeDisplayName(badgeId) {
+  const config = BADGE_CONFIG[badgeId];
+  if (config && config.name) return String(config.name);
+  return String(badgeId || '')
+    .replace(/^TITLE_/, '')
+    .replace(/_/g, ' ')
+    .trim();
+}
+
+function getIdentityKey(session, msg) {
+  const accountId = safeAccountId((msg && msg.accountId) || session.accountId || '');
+  if (accountId) return 'acc:' + accountId;
+  const profileId = safeProfileId((msg && msg.profileId) || session.profileId || '');
+  if (profileId) return 'pid:' + profileId;
+  const userKey = normalizeUser((msg && msg.user) || session.user || '');
+  if (userKey) return 'user:' + userKey;
+  return '';
 }
 
 function getRoom(roomId) {
@@ -124,12 +518,6 @@ function broadcast(room, sessionId, data) {
   }
 }
 
-function sendTo(session, data) {
-  if (session.ws.readyState === WebSocket.OPEN) {
-    try { session.ws.send(typeof data === 'string' ? data : JSON.stringify(data)); } catch (_) {}
-  }
-}
-
 function findSessionByClientId(room, clientId) {
   const safeId = safeClientId(clientId);
   if (!safeId) return null;
@@ -137,6 +525,12 @@ function findSessionByClientId(room, clientId) {
     if (session && session.clientId === safeId) return session;
   }
   return null;
+}
+
+function sendTo(session, data) {
+  if (session.ws.readyState === WebSocket.OPEN) {
+    try { session.ws.send(typeof data === 'string' ? data : JSON.stringify(data)); } catch (_) {}
+  }
 }
 
 function sendBadgeReject(session, badgeId, error) {
@@ -150,47 +544,68 @@ function sendBadgeReject(session, badgeId, error) {
   });
 }
 
-function approveBadge(room, sessionId, session, badgeId) {
+async function approveBadge(room, sessionId, session, badgeId) {
   const user = safeUser(session.user);
-  const userKey = normalizeUser(user);
-  badgeState.active[userKey] = badgeId;
-  saveBadgeState();
+  const identityKey = getIdentityKey(session);
+  if (!identityKey) return sendBadgeReject(session, badgeId, 'Badge equip failed.');
+  await setActiveBadge(identityKey, badgeId);
+  session.activeBadge = badgeId;
 
   sendTo(session, {
     type: 'badge_result',
     ok: true,
     user,
     clientId: session.clientId,
-    badgeId
+    gameName: session.gameName || '',
+    gameTag: session.gameTag || '',
+    badgeId,
+    message: badgeId ? `${getBadgeDisplayName(badgeId)} Equipped` : 'Badge Unequipped',
+    entitlements: await getBadgeEntitlements(identityKey)
   });
 
   broadcast(room, sessionId, JSON.stringify({
     type: 'badge_state',
     user,
     clientId: session.clientId,
+    gameName: session.gameName || '',
+    gameTag: session.gameTag || '',
     badgeId
   }));
 }
 
-function handleBadgeEquip(room, sessionId, session, msg) {
-  const badgeId = safeBadgeId(msg.badgeId);
-  const userKey = normalizeUser(session.user);
-  if (!badgeId || !userKey) return sendBadgeReject(session, badgeId, 'Badge equip failed.');
-  if (!hasBadgeEntitlement(userKey, badgeId)) return sendBadgeReject(session, badgeId, 'Badge is locked.');
-  approveBadge(room, sessionId, session, badgeId);
+async function handleBadgeEquip(room, sessionId, session, msg) {
+  if (msg.gameName !== undefined) session.gameName = safeDisplayName(msg.gameName);
+  if (msg.gameTag !== undefined) session.gameTag = safeDisplayName(msg.gameTag);
+  const rawBadgeId = String(msg.badgeId || '').trim();
+  if (!rawBadgeId) return approveBadge(room, sessionId, session, '');
+  const badgeId = safeBadgeId(rawBadgeId);
+  const identityKey = getIdentityKey(session, msg);
+  const config = badgeId ? BADGE_CONFIG[badgeId] : null;
+  if (!badgeId || !identityKey) return sendBadgeReject(session, badgeId, 'Badge equip failed.');
+  if (config && config.free && !await hasBadgeEntitlement(identityKey, badgeId)) {
+    await grantBadgeEntitlement(identityKey, badgeId);
+  }
+  if (!await hasBadgeEntitlement(identityKey, badgeId)) return sendBadgeReject(session, badgeId, 'Badge is locked.');
+  await approveBadge(room, sessionId, session, badgeId);
 }
 
-function handleBadgeUnlock(room, sessionId, session, msg) {
+async function handleBadgeUnlock(room, sessionId, session, msg) {
+  if (msg.gameName !== undefined) session.gameName = safeDisplayName(msg.gameName);
+  if (msg.gameTag !== undefined) session.gameTag = safeDisplayName(msg.gameTag);
   const badgeId = safeBadgeId(msg.badgeId);
-  const userKey = normalizeUser(session.user);
-  if (badgeId !== BADGES.TESTER || !userKey) return sendBadgeReject(session, badgeId, 'Badge unlock failed.');
-  if (!TESTER_PASSWORD) return sendBadgeReject(session, badgeId, 'Tester badge is not configured on the server.');
-  if (!timingSafeEquals(msg.password, TESTER_PASSWORD)) return sendBadgeReject(session, badgeId, 'Incorrect badge password.');
-  grantBadgeEntitlement(userKey, badgeId);
-  approveBadge(room, sessionId, session, badgeId);
+  const identityKey = getIdentityKey(session, msg);
+  const config = badgeId ? BADGE_CONFIG[badgeId] : null;
+  if (!badgeId || !identityKey || !config || !config.passwordEnv) {
+    return sendBadgeReject(session, badgeId, 'Badge unlock failed.');
+  }
+  const expectedPassword = process.env[config.passwordEnv] || '';
+  if (!expectedPassword) return sendBadgeReject(session, badgeId, 'Badge is not configured on the server.');
+  if (!timingSafeEquals(msg.password, expectedPassword)) return sendBadgeReject(session, badgeId, 'Incorrect badge password.');
+  await grantBadgeEntitlement(identityKey, badgeId);
+  await approveBadge(room, sessionId, session, badgeId);
 }
 
-// dead connection cleanup — runs every 30s
+// dead connection cleanup - runs every 30s
 // sends a ping, marks pingSent, closes if no pong comes back in next cycle
 setInterval(function() {
   const now = Date.now();
@@ -241,16 +656,20 @@ wss.on('connection', function(ws, req) {
     ws,
     roomId,
     user: null,
-    clientId: null,
+    accountId: '',
+    profileId: '',
+    identityKey: '',
     gameName: '',
     gameTag: '',
+    activeBadge: '',
+    clientId: null,
     lastPong: Date.now()
   };
 
   room.set(sessionId, session);
   console.log('[relay] connect', sessionId, 'room:', roomId, 'clients:', room.size);
 
-  // native pong handler — update lastPong
+  // native pong handler - update lastPong
   ws.on('pong', function() {
     session.lastPong = Date.now();
   });
@@ -263,10 +682,10 @@ wss.on('connection', function(ws, req) {
       snapshot.push({
         type: 'join',
         user: s.user,
-        clientId: s.clientId || null,
         gameName: s.gameName || '',
         gameTag: s.gameTag || '',
-        activeBadge: badgeState.active[normalizeUser(s.user)] || ''
+        clientId: s.clientId || null,
+        activeBadge: s.activeBadge || ''
       });
     }
   }
@@ -287,20 +706,71 @@ wss.on('connection', function(ws, req) {
   }
 
   ws.on('message', function(raw) {
+    Promise.resolve().then(async function() {
     let msg;
     try { msg = JSON.parse(raw); } catch (_) { return; }
+
+    if (PRESENCE_TYPES.has(msg.type) && db.hasDatabase) {
+      const authenticated = await authenticateAnonymousAccount(msg.accountId, msg.deviceToken);
+      if (authenticated && authenticated.accountId) {
+        session.accountId = authenticated.accountId;
+        msg.accountId = authenticated.accountId;
+      } else {
+        session.accountId = '';
+        delete msg.accountId;
+      }
+    }
 
     // update session state
     if (PRESENCE_TYPES.has(msg.type) && msg.user) {
       session.user = safeUser(msg.user);
       session.clientId = safeClientId(msg.clientId) || null;
-      session.gameName = safeUser(msg.gameName);
-      session.gameTag = safeUser(msg.gameTag);
+      session.profileId = safeProfileId(msg.profileId) || '';
+      session.gameName = safeDisplayName(msg.gameName);
+      session.gameTag = safeDisplayName(msg.gameTag);
       msg.user = session.user;
       msg.clientId = session.clientId;
+      if (session.accountId) msg.accountId = session.accountId;
+      msg.profileId = session.profileId;
       msg.gameName = session.gameName;
       msg.gameTag = session.gameTag;
-      msg.activeBadge = badgeState.active[normalizeUser(session.user)] || '';
+      const identityKey = getIdentityKey(session, msg);
+      session.identityKey = identityKey;
+      const hasActiveBadgeField = Object.prototype.hasOwnProperty.call(msg, 'activeBadge');
+      if (hasActiveBadgeField && identityKey) {
+        const requestedBadge = safeBadgeId(msg.activeBadge);
+        let activeBadge = '';
+        if (requestedBadge) {
+          const config = BADGE_CONFIG[requestedBadge];
+          if (config && config.free && !await hasBadgeEntitlement(identityKey, requestedBadge)) {
+            await grantBadgeEntitlement(identityKey, requestedBadge);
+          }
+          if (await hasBadgeEntitlement(identityKey, requestedBadge)) activeBadge = requestedBadge;
+        } else {
+          const storedActive = await getActiveBadge(identityKey);
+          if (storedActive && await hasBadgeEntitlement(identityKey, storedActive)) activeBadge = storedActive;
+        }
+        await setActiveBadge(identityKey, activeBadge);
+        session.activeBadge = activeBadge;
+        msg.activeBadge = activeBadge;
+      } else {
+        const storedActive = identityKey ? await getActiveBadge(identityKey) : '';
+        session.activeBadge = storedActive;
+        msg.activeBadge = storedActive;
+      }
+      msg.entitlements = identityKey ? await getBadgeEntitlements(identityKey) : [];
+      if (msg.type === 'join') {
+        sendTo(session, {
+          type: 'badge_result',
+          ok: true,
+          user: session.user,
+          clientId: session.clientId,
+          gameName: session.gameName || '',
+          gameTag: session.gameTag || '',
+          badgeId: msg.activeBadge,
+          entitlements: msg.entitlements
+        });
+      }
     }
     // buffer cmd and emote for replay
     if (BUFFERED_TYPES.has(msg.type)) {
@@ -315,12 +785,12 @@ wss.on('connection', function(ws, req) {
     }
 
     if (msg.type === 'badge_equip') {
-      handleBadgeEquip(room, sessionId, session, msg);
+      await handleBadgeEquip(room, sessionId, session, msg);
       return;
     }
 
     if (msg.type === 'badge_unlock') {
-      handleBadgeUnlock(room, sessionId, session, msg);
+      await handleBadgeUnlock(room, sessionId, session, msg);
       return;
     }
 
@@ -337,6 +807,9 @@ wss.on('connection', function(ws, req) {
 
     // broadcast known relay messages to the room
     broadcast(room, sessionId, JSON.stringify(msg));
+    }).catch(function(err) {
+      console.error('[relay] message handler failed', err.message);
+    });
   });
 
   ws.on('close', function() {
@@ -359,6 +832,21 @@ wss.on('connection', function(ws, req) {
   });
 });
 
-server.listen(PORT, function() {
-  console.log('[relay] listening on port', PORT);
-});
+async function start() {
+  try {
+    if (db.hasDatabase) {
+      await db.ensureSchema();
+      console.log('[relay] database schema ready');
+    } else {
+      console.warn('[relay] DATABASE_URL is not configured yet; anonymous accounts are disabled');
+    }
+  } catch (err) {
+    console.error('[relay] failed to initialize database schema:', err.message);
+  }
+
+  server.listen(PORT, function() {
+    console.log('[relay] listening on port', PORT);
+  });
+}
+
+start();
