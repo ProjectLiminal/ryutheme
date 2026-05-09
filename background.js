@@ -46,25 +46,42 @@
     return chrome.storage.local.remove([AUTH_STORAGE_KEY]);
   }
 
-  async function getGoogleAccessToken(interactive) {
+  async function getGoogleAccessTokenViaWebFlow() {
     const clientId = getConfiguredGoogleClientId();
     if (!clientId) {
       throw new Error('Google OAuth client ID is not configured in the extension manifest.');
     }
-
-    const result = await chrome.identity.getAuthToken({
-      interactive: interactive !== false,
-      scopes: ['openid', 'email', 'profile']
+    const redirectUrl = chrome.identity.getRedirectURL();
+    const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    authUrl.searchParams.set('client_id', clientId);
+    authUrl.searchParams.set('response_type', 'token');
+    authUrl.searchParams.set('redirect_uri', redirectUrl);
+    authUrl.searchParams.set('scope', 'openid email profile');
+    authUrl.searchParams.set('prompt', 'select_account');
+    const resultUrl = await chrome.identity.launchWebAuthFlow({
+      url: authUrl.toString(),
+      interactive: true
     });
-    const token = result && typeof result === 'object' ? result.token : result;
-    if (!token) {
-      throw new Error('Google sign-in did not return an access token.');
-    }
-    return String(token);
+    if (!resultUrl) throw new Error('Google sign-in was cancelled.');
+    const params = new URLSearchParams(new URL(resultUrl).hash.slice(1));
+    const token = params.get('access_token');
+    if (!token) throw new Error('Google sign-in did not return an access token.');
+    return token;
+  }
+
+  async function clearGoogleTokenCache() {
+    try {
+      const result = await chrome.identity.getAuthToken({ interactive: false, scopes: ['openid', 'email', 'profile'] });
+      const token = result && typeof result === 'object' ? result.token : result;
+      if (token) {
+        try { await chrome.identity.removeCachedAuthToken({ token: token }); } catch (_) {}
+      }
+    } catch (_) {}
+    try { await chrome.identity.clearAllCachedAuthTokens(); } catch (_) {}
   }
 
   async function signInWithGoogle() {
-    const accessToken = await getGoogleAccessToken(true);
+    const accessToken = await getGoogleAccessTokenViaWebFlow();
     const response = await fetch(RELAY_HTTP_BASE + '/auth/google', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -104,14 +121,7 @@
   }
 
   async function signOut() {
-    try {
-      const result = await chrome.identity.getAuthToken({ interactive: false, scopes: ['openid', 'email', 'profile'] });
-      const token = result && typeof result === 'object' ? result.token : result;
-      if (token) {
-        try { await chrome.identity.removeCachedAuthToken({ token: token }); } catch (_) {}
-      }
-    } catch (_) {}
-    try { await chrome.identity.clearAllCachedAuthTokens(); } catch (_) {}
+    await clearGoogleTokenCache();
     await clearAuthState();
     return sanitizeAuthState(null);
   }
