@@ -2164,20 +2164,46 @@
 
     function syncRyuGoogleAuthUi() {
       var state = globalThis.__ryuGetAuthState ? globalThis.__ryuGetAuthState() : (globalThis.__ryuAuthState || {});
-      var signinBtn = document.getElementById('ryu-menu-google-signin');
-      var signoutBtn = document.getElementById('ryu-menu-google-signout');
-      var statusEl = document.getElementById('ryu-menu-google-auth-status');
+      var signinBtn    = document.getElementById('ryu-menu-google-signin');
+      var signoutBtn   = document.getElementById('ryu-menu-google-signout');
+      var statusEl     = document.getElementById('ryu-menu-google-auth-status');
+      var nameEl       = document.getElementById('ryu-menu-acct-name');
+      var tagEl        = document.querySelector('#ryu-menu-right .ryu-acct-tag');
+      var avatarImg    = document.getElementById('ryu-menu-acct-avatar-img');
+      var avatarFallback = document.getElementById('ryu-menu-acct-avatar-fallback');
       if (!signinBtn || !signoutBtn || !statusEl) return;
+
+      var hasCustomAvatar = !!(loadTheme && loadTheme().accountAvatar);
+
       if (state && state.signedIn) {
+        // buttons
         signinBtn.textContent = '✅ CONNECTED';
         signinBtn.disabled = true;
         signinBtn.style.opacity = '0.7';
         signinBtn.style.cursor = 'default';
         signoutBtn.style.display = '';
+
+        // account name — prefer displayName, fall back to Google name, then game username
+        var ryuName = state.displayName || state.name || username;
+        if (nameEl) nameEl.textContent = ryuName;
+
+        // account tag
+        if (tagEl) tagEl.textContent = state.email ? state.email : 'Ryutheme Account';
+
+        // avatar — use Google picture if no custom avatar is uploaded
+        if (!hasCustomAvatar && state.picture && avatarImg) {
+          avatarImg.src = state.picture;
+          avatarImg.style.display = '';
+          if (avatarFallback) avatarFallback.style.display = 'none';
+        } else if (avatarFallback) {
+          avatarFallback.textContent = ryuName.charAt(0).toUpperCase();
+        }
+
+        // status text with set/change name link
         while (statusEl.firstChild) statusEl.removeChild(statusEl.firstChild);
-        var linkedText = 'Ryutheme account linked to ' + (state.email || state.name || 'Google') + '.';
-        if (state.displayName) linkedText += ' Account name: ' + state.displayName + '.';
-        linkedText += ' Badges and proximity voice now follow this account. ';
+        var linkedText = state.displayName
+          ? 'Signed in as ' + state.displayName + ' (' + (state.email || 'Google') + '). '
+          : 'Ryutheme account linked to ' + (state.email || 'Google') + '. ';
         statusEl.appendChild(document.createTextNode(linkedText));
         var nameLink = document.createElement('a');
         nameLink.href = '#';
@@ -2186,11 +2212,27 @@
         nameLink.addEventListener('click', function(e) { e.preventDefault(); showRyuNameModal(true); });
         statusEl.appendChild(nameLink);
       } else {
+        // buttons
         signinBtn.textContent = '🔐 RYUTHEME SIGN IN';
         signinBtn.disabled = false;
         signinBtn.style.opacity = '';
         signinBtn.style.cursor = '';
         signoutBtn.style.display = 'none';
+
+        // restore native game values
+        if (nameEl) nameEl.textContent = username;
+        if (tagEl) tagEl.textContent = isGuest ? 'Guest Account' : 'Player';
+
+        // restore avatar to custom or letter fallback
+        if (!hasCustomAvatar && avatarImg) {
+          avatarImg.src = '';
+          avatarImg.style.display = 'none';
+          if (avatarFallback) {
+            avatarFallback.style.display = '';
+            avatarFallback.textContent = avatarChar;
+          }
+        }
+
         statusEl.textContent = 'Sign in with Google to use Ryutheme badges and proximity voice.';
       }
     }
