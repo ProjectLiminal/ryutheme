@@ -8,15 +8,58 @@
   const _SERVER_MAX = { '01': 16, '02': 16, '03': 128, '04': 64, '05': 16, '06': 16 };
 
   window.WebSocket = function (...args) {
-    const ws = new _origWS(...args);
-    window._ryuWS = ws;
     try {
-      const m = args[0] && args[0].match(/server-(\d+)/);
-      if (m) window._ryuSplitMax = _SERVER_MAX[m[1]] || 0;
+      const rawUrl = String(args[0] || '');
+      if (rawUrl.includes('ryuten.io/server') && window._ryuNextServerUrl) {
+        args[0] = window._ryuNextServerUrl;
+        window._ryuNextServerUrl = null;
+      }
+    } catch(e) {}
+    const ws = new _origWS(...args);
+    try {
+      const url = String(args[0] || '');
+      if (url.includes('ryuten.io')) {
+        window._ryuWS = ws;
+        const m = url.match(/server-(\d+)/);
+        if (m) window._ryuSplitMax = _SERVER_MAX[m[1]] || 0;
+      }
     } catch(e) {}
     return ws;
   };
   window.WebSocket.prototype = _origWS.prototype;
+
+  // Auto-spectate a player by game name after joining their server.
+  // Called from the Users Online join button in interface.js.
+  globalThis.__ryuStartAutoSpec = function(gameName) {
+    if (!gameName) return;
+    window._ryuAutoSpecTarget = gameName;
+    var attempts = 0;
+    var maxAttempts = 30; // 15s at 500ms
+    var timer = setInterval(function() {
+      try {
+        var target = window._ryuAutoSpecTarget;
+        if (!target) { clearInterval(timer); return; }
+        attempts++;
+        if (attempts > maxAttempts) {
+          clearInterval(timer);
+          window._ryuAutoSpecTarget = null;
+          return;
+        }
+        var ne = globalThis.__ryuNe;
+        var me = globalThis.__ryuMe;
+        if (!ne || !me || !ne._2430) return;
+        for (var cell of ne._2430.values()) {
+          var name = cell._2182 && cell._2182._1059 && cell._2182._1059._6988;
+          if (name === target) {
+            me._7857(cell._2182._1059._9782);
+            clearInterval(timer);
+            window._ryuAutoSpecTarget = null;
+            return;
+          }
+        }
+      } catch(e) {}
+    }, 500);
+  };
 
   // theme storage helpers
   const STORAGE_KEY = 'ryuTheme';
@@ -145,6 +188,10 @@
   let _ft_teamCellColorsOn = false;
   let _ft_teamCellColor = '#ff69b4';
   let _ft_teamCellRgb = { r: 255, g: 105, b: 180 };
+  // Cached results of the per-frame-expensive DOM/CSS UI-blocking checks.
+  // Refreshed every 250ms by syncFastThemeState — never called per-frame.
+  let _ft_uiBlocking = false;
+  let _ft_menuOverlay = false;
 
   function _parseHexRgb(hex) {
     let v = parseInt(String(hex || '#ff69b4').replace('#', ''), 16);
@@ -393,11 +440,19 @@
   // Keep kill feed flag live — without this it was only set once at startup and
   // never updated, so toggling the setting mid-session had no effect.
   globalThis.__ryuKillFeedOn = !t.useDefault && !!t.killFeedOn;
+  _ft_uiBlocking = isRyuUiBlockingActive();
+  _ft_menuOverlay = isRyuMenuOverlayVisible();
   }
   syncFastThemeState(true);
   setInterval(function() {
     syncFastThemeState(false);
   }, 250);
+  // Override the ryuten-patched.js implementation so __ryuPatchedTheme() returns
+  // the already-maintained _themeCache directly — zero localStorage reads in the
+  // render path. syncFastThemeState refreshes _themeCache every 250ms; saveTheme
+  // updates it synchronously, so atlas rebuilds triggered from settings always
+  // see the correct fresh theme.
+  globalThis.__ryuPatchedTheme = function() { return _themeCache !== null ? _themeCache : loadTheme(); };
 
   // set defaults for any missing keys
   let theme = loadTheme();
@@ -2028,6 +2083,8 @@
     var _dirty = true;
     var _urlCache = { light: '', dark: '' };
     var _lastDebug = null;
+    var _mapThemeCacheRaw = null;
+    var _mapThemeCache = null;
     var _styleId = 'ryu-agar-map-dark-surround-style';
 
     function ensureDarkSurroundStyle() {
@@ -2077,7 +2134,12 @@
 
     function readMapState() {
       try {
-        var t = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {};
+        var raw = localStorage.getItem(STORAGE_KEY) || '{}';
+        if (raw !== _mapThemeCacheRaw) {
+          _mapThemeCacheRaw = raw;
+          _mapThemeCache = JSON.parse(raw) || {};
+        }
+        var t = _mapThemeCache || {};
         var darkMirror = localStorage.getItem('ryuAgarMapDark');
         if (darkMirror === '1' || darkMirror === '0') t.agarDarkModeOn = darkMirror === '1';
         var mapOn = !t.useDefault && !!t.agarModeOn && (!!t.agarMapOn || !!t.agarMapModeOn);
@@ -2086,6 +2148,8 @@
         globalThis.__ryuAgarMapDark = darkOn;
         return { on: mapOn, dark: darkOn, blocked: !!_ft_sectorOverlayOn, theme: t };
       } catch(_) {
+        _mapThemeCacheRaw = null;
+        _mapThemeCache = null;
         return {
           on: !!globalThis.__ryuAgarMap,
           dark: !!globalThis.__ryuAgarMapDark,
@@ -2296,7 +2360,7 @@
       return globalThis.__ryuAgarMapDebugEnabled;
     };
 
-    setInterval(syncAgarMapVisuals, 150);
+    setInterval(syncAgarMapVisuals, 400);
   })();
 
   // World sectors: native background image layer. This avoids screen-space
@@ -2492,12 +2556,14 @@
  // danger indicator
   (function() {
     const EAT_THRESHOLD = 1.35;
+    const PI2 = Math.PI * 2;
 
     let _mc     = null;
     let _canvas = null;
     let _ctx    = null;
     let _rect   = null;
     let _dangerWasOn = false;
+    let _cachedMyMaxRadius = 0;
 
     function refreshCache() {
       _mc     = document.getElementById('main-canvas');
@@ -2546,14 +2612,6 @@
       const myPlayer = Be._1059;
       if (!myPlayer) return;
 
-      let myMaxRadius = 0;
-      for (const cell of ne._2430.values()) {
-        if (cell._9491) continue;
-        if (cell._2182 && cell._2182._1059 === myPlayer) {
-          if (cell._1904 > myMaxRadius) myMaxRadius = cell._1904;
-        }
-      }
-
       const zoom   = z._4336;
       const camX   = z._3852._7847;
       const camY   = z._3852._9202;
@@ -2568,26 +2626,34 @@
       const showRed    = _ft_dangerShowRed;
       const showYellow = _ft_dangerShowYellow;
 
+      // Use previous frame's myMaxRadius for color decisions; update it this pass.
+      // Single ne._2430 iteration handles both own-radius tracking and enemy drawing.
+      const prevMax = _cachedMyMaxRadius;
+      let newMax = 0;
+
       _ctx.lineWidth = 5;
 
       for (const cell of ne._2430.values()) {
         if (cell._9491) continue;
-        if (cell._2182 && cell._2182._1059 === myPlayer) continue;
+        if (cell._2182 && cell._2182._1059 === myPlayer) {
+          if (cell._1904 > newMax) newMax = cell._1904;
+          continue;
+        }
         if (cell._7926 !== 1) continue;
 
         const theirR  = cell._1904;
 
         let color;
-        if (myMaxRadius === 0) {
+        if (prevMax === 0) {
           if (!showYellow) continue;
           color = 'rgba(255,255,0,1.0)';
-        } else if (canEat(myMaxRadius * 0.707, theirR)) {
+        } else if (canEat(prevMax * 0.707, theirR)) {
           if (!showBlue) continue;
           color = 'rgba(80,140,255,1.0)';
-        } else if (canEat(myMaxRadius, theirR)) {
+        } else if (canEat(prevMax, theirR)) {
           if (!showGreen) continue;
           color = 'rgba(0,255,80,1.0)';
-        } else if (canEat(theirR, myMaxRadius)) {
+        } else if (canEat(theirR, prevMax)) {
           if (!showRed) continue;
           color = 'rgba(255,40,40,1.0)';
         } else {
@@ -2600,10 +2666,12 @@
         const screenR = theirR * zoom * scaleY * 1.02;
 
         _ctx.beginPath();
-        _ctx.arc(sx, sy, screenR, 0, Math.PI * 2);
+        _ctx.arc(sx, sy, screenR, 0, PI2);
         _ctx.strokeStyle = color;
         _ctx.stroke();
       }
+
+      _cachedMyMaxRadius = newMax;
     }
 
     function waitAndInit() {
@@ -2777,14 +2845,25 @@
     let _pickerWarmed = false;
     let _gifImgsLoaded = false;
     let _mc = null;
-    let _mcRect = null;
 
-    // DOM emote pipeline
+    // PIXI emote layer (world-space, no DOM layout cost)
+    let _emoteLayer = null;
+
+    // Lottie JSON fetch/cache
     const _lottieCache   = Object.create(null);
     const _lottiePending = Object.create(null);
-    const _activeEmotes  = []; // { kill: fn }
+
+    // Per-type PIXI texture cache: code / url / 'emoji:'+label → entry
+    const _emoteTexCache   = Object.create(null);
+    const _emoteTexPending = Object.create(null);
+
+    // Active emotes (PIXI sprites in world space)
+    const _activeEmotes    = [];
     const MAX_ACTIVE_EMOTES = 8;
     const EMOTE_CELL_RATIO  = 1.8;
+    const EMOTE_TEX_SIZE        = 256;
+    const LOTTIE_CAPTURE_FRAMES = 30;
+    const LOTTIE_PLAYBACK_FPS   = 15;
 
     // --- helpers ---
     function loadLottie(cb) {
@@ -2825,25 +2904,6 @@
       return bigCell;
     }
 
-    function getCellScreen(cell) {
-      const z = globalThis.__z_;
-      if (!z || !_mc) return null;
-      if (!_mcRect) _mcRect = _mc.getBoundingClientRect();
-      const rect = _mcRect;
-      const zoom = z._4336;
-      const camX = z._3852._7847;
-      const camY = z._3852._9202;
-      const cx = _mc.width / 2;
-      const cy = _mc.height / 2;
-      const scaleX = rect.width  / _mc.width;
-      const scaleY = rect.height / _mc.height;
-      return {
-        x: rect.left + ((cell._7847 - camX) * zoom + cx) * scaleX,
-        y: rect.top  + ((cell._9202 - camY) * zoom + cy) * scaleY,
-        r: cell._1904 * zoom * scaleY
-      };
-    }
-    window.addEventListener('resize', function() { _mcRect = null; }, { passive: true });
 
     // --- Lottie JSON fetch/cache ---
     function getLottieData(code, cb) {
@@ -2863,97 +2923,338 @@
         });
     }
 
-    function removeActive() {
-      while (_activeEmotes.length) _activeEmotes.pop().kill();
+    // --- PIXI world-space emote layer ---
+
+    function _tryBuildEmoteLayer() {
+      if (_emoteLayer) return true;
+      if (!globalThis.__ryuWorldLayer || !globalThis.__ryuPixi) return false;
+      var runners = globalThis.__X_ && globalThis.__X_._1855 && globalThis.__X_._1855.runners;
+      if (!runners || !runners.postrender) return false;
+      _emoteLayer = new (globalThis.__ryuPixi.Container)();
+      globalThis.__ryuWorldLayer.addChild(_emoteLayer);
+      runners.postrender.add({ postrender: _emotePostRender });
+      return true;
     }
 
-    // Shared DOM emote spawner — sizes and repositions every RAF frame using
-    // getCellScreen so the emote tracks the cell correctly through zoom changes.
-    function _spawnDomEmote(getCellFn, setupFn) {
-      var cell = getCellFn();
-      if (!cell) return;
-      var p = getCellScreen(cell);
-      if (!p) return;
-
-      var size = Math.max(60, Math.min(200, p.r * EMOTE_CELL_RATIO));
-      var el = document.createElement('div');
-      el.style.cssText = 'position:fixed;pointer-events:none;z-index:99998;transform:translate(-50%,-50%);opacity:1;overflow:hidden;'
-        + 'width:' + size + 'px;height:' + size + 'px;left:' + p.x + 'px;top:' + p.y + 'px;';
-
-      document.body.appendChild(el);
-      var teardown = setupFn(el) || null;
-
-      var start = performance.now();
-      var rafId = null;
-      var dead  = false;
-
-      function kill() {
-        if (dead) return;
-        dead = true;
-        if (rafId) cancelAnimationFrame(rafId);
-        if (teardown) { try { teardown(); } catch (_) {} }
-        el.remove();
+    function _emotePostRender() {
+      if (!_emoteLayer || !_activeEmotes.length) return;
+      var now = performance.now();
+      for (var i = _activeEmotes.length - 1; i >= 0; i--) {
+        var e = _activeEmotes[i];
+        if (e.dead) { _activeEmotes.splice(i, 1); continue; }
+        // Refresh cellRef every frame so the emote survives splits and always
+        // follows the player's biggest current piece rather than the locked spawn cell.
+        if (e.refreshCell) {
+          var fresh = e.refreshCell();
+          if (fresh && !fresh._9491) e.cellRef = fresh;
+        }
+        var cell = e.cellRef;
+        if (!cell || cell._9491) { _killEmote(e); _activeEmotes.splice(i, 1); continue; }
+        var elapsed = now - e.startTime;
+        if (elapsed >= DURATION_MS) { _killEmote(e); _activeEmotes.splice(i, 1); continue; }
+        e.sprite.x = cell._7847;
+        e.sprite.y = cell._9202;
+        // Keep scale in sync — cell size changes after split/merge.
+        e.sprite.scale.set((cell._1904 * EMOTE_CELL_RATIO) / EMOTE_TEX_SIZE);
+        if (elapsed >= DURATION_MS - 300) {
+          e.sprite.alpha = Math.max(0, 1 - (elapsed - (DURATION_MS - 300)) / 300);
+        }
       }
+    }
 
-      function track() {
-        var c = getCellFn();
-        if (!c) { kill(); return; }
-        var pos = getCellScreen(c);
-        if (!pos) { kill(); return; }
-        var sz = Math.max(60, Math.min(200, pos.r * EMOTE_CELL_RATIO));
-        el.style.width  = sz + 'px';
-        el.style.height = sz + 'px';
-        el.style.left   = pos.x + 'px';
-        el.style.top    = pos.y + 'px';
-        var elapsed = performance.now() - start;
-        if (elapsed >= DURATION_MS - 300) el.style.opacity = '0';
-        if (elapsed >= DURATION_MS) { kill(); return; }
-        rafId = requestAnimationFrame(track);
+    function _killEmote(e) {
+      if (e.dead) return;
+      e.dead = true;
+      if (e.frameTimer !== null) { clearInterval(e.frameTimer); e.frameTimer = null; }
+      if (e.lottieTeardown) { try { e.lottieTeardown(); } catch (_) {} e.lottieTeardown = null; }
+      if (e.sprite) {
+        try {
+          if (e.sprite.parent) e.sprite.parent.removeChild(e.sprite);
+          e.sprite.destroy(false);
+        } catch (_) {}
+        e.sprite = null;
       }
+    }
 
-      track();
-      while (_activeEmotes.length >= MAX_ACTIVE_EMOTES) _activeEmotes.shift().kill();
-      _activeEmotes.push({ kill: kill });
+    function removeActive() {
+      for (var i = 0; i < _activeEmotes.length; i++) _killEmote(_activeEmotes[i]);
+      _activeEmotes.length = 0;
+    }
+
+    // --- PIXI texture builders (one-time per emote code/url, cached) ---
+
+    function _buildEmojiTex(label, cb) {
+      var key = 'emoji:' + label;
+      if (_emoteTexCache[key]) { cb(_emoteTexCache[key]); return; }
+      if (_emoteTexPending[key]) { _emoteTexPending[key].push(cb); return; }
+      _emoteTexPending[key] = [cb];
+      var sz = EMOTE_TEX_SIZE;
+      var cvs = document.createElement('canvas');
+      cvs.width = sz; cvs.height = sz;
+      var ctx = cvs.getContext('2d');
+      ctx.font         = Math.floor(sz * 0.7) + 'px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",serif';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, sz / 2, sz / 2);
+      var tex = null;
+      try { tex = globalThis.__ryuPixi.Sprite.from(cvs).texture; } catch (_) {}
+      var entry = tex ? { type: 'emoji', tex: tex } : null;
+      if (entry) _emoteTexCache[key] = entry;
+      var cbs = _emoteTexPending[key]; delete _emoteTexPending[key];
+      for (var i = 0; i < cbs.length; i++) cbs[i](entry);
+    }
+
+    function _buildGifTex(url, cb) {
+      if (_emoteTexCache[url]) { cb(_emoteTexCache[url]); return; }
+      if (_emoteTexPending[url]) { _emoteTexPending[url].push(cb); return; }
+      _emoteTexPending[url] = [cb];
+      var sz = EMOTE_TEX_SIZE;
+      var img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = function() {
+        var cvs = document.createElement('canvas');
+        cvs.width = sz; cvs.height = sz;
+        cvs.getContext('2d').drawImage(img, 0, 0, sz, sz);
+        var tex = null, baseTex = null;
+        try {
+          var spr = globalThis.__ryuPixi.Sprite.from(cvs);
+          tex = spr.texture; baseTex = tex.baseTexture;
+        } catch (_) {}
+        var entry = tex ? { type: 'gif', tex: tex, baseTex: baseTex, canvas: cvs, img: img } : null;
+        if (entry) _emoteTexCache[url] = entry;
+        var cbs = _emoteTexPending[url]; delete _emoteTexPending[url];
+        for (var i = 0; i < cbs.length; i++) cbs[i](entry);
+      };
+      img.onerror = function() {
+        var cbs = _emoteTexPending[url]; delete _emoteTexPending[url];
+        for (var i = 0; i < cbs.length; i++) cbs[i](null);
+      };
+      img.src = url;
+    }
+
+    function _finishLottieBuild(key, textures) {
+      var entry = (textures && textures.length)
+        ? { type: 'lottie', textures: textures, totalFrames: textures.length, fps: LOTTIE_PLAYBACK_FPS }
+        : null;
+      if (entry) _emoteTexCache[key] = entry;
+      var cbs = _emoteTexPending[key]; delete _emoteTexPending[key];
+      if (cbs) for (var i = 0; i < cbs.length; i++) cbs[i](entry);
+    }
+
+    function _startLottieChunkedBuild(key, data) {
+      var sz = EMOTE_TEX_SIZE;
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'position:fixed;left:-' + (sz + 20) + 'px;top:0;width:' + sz + 'px;height:' + sz + 'px;pointer-events:none;visibility:hidden;overflow:hidden;';
+      document.body.appendChild(wrap);
+      var anim = null;
+      try {
+        anim = _lottie.loadAnimation({
+          container: wrap, renderer: 'canvas', loop: false, autoplay: false,
+          animationData: data, rendererSettings: { clearCanvas: true }
+        });
+      } catch (_) {
+        wrap.remove();
+        _finishLottieBuild(key, null);
+        return;
+      }
+      // Wait one tick for Lottie to create its internal canvas, then chunk.
+      setTimeout(function() {
+        var lottieCanvas = wrap.querySelector('canvas');
+        var pixi = globalThis.__ryuPixi;
+        if (!lottieCanvas || !pixi) {
+          try { anim.destroy(); } catch (_) {}
+          wrap.remove();
+          _finishLottieBuild(key, null);
+          return;
+        }
+        var RyuSprite = pixi.Sprite;
+        var totalNative  = Math.max(1, Math.ceil(anim.totalFrames));
+        var captureCount = Math.min(totalNative, LOTTIE_CAPTURE_FRAMES);
+        var textures     = [];
+        var captureIdx   = 0;
+
+        function doSlice(deadline) {
+          var t0 = performance.now();
+          do {
+            // Sample evenly across the native frame range.
+            var frameNum = captureCount > 1
+              ? Math.round(captureIdx * (totalNative - 1) / (captureCount - 1))
+              : 0;
+            try { anim.goToAndStop(frameNum, true); } catch (_) {}
+            var fc = document.createElement('canvas');
+            fc.width = sz; fc.height = sz;
+            try { fc.getContext('2d').drawImage(lottieCanvas, 0, 0, sz, sz); } catch (_) {}
+            try { textures.push(RyuSprite.from(fc).texture); } catch (_) {}
+            captureIdx++;
+          } while (captureIdx < captureCount &&
+                   (deadline ? deadline.timeRemaining() >= 3 : performance.now() - t0 <= 10));
+          if (captureIdx < captureCount) {
+            if ('requestIdleCallback' in window) {
+              requestIdleCallback(doSlice, { timeout: 800 });
+            } else {
+              setTimeout(function() { doSlice(null); }, 8);
+            }
+          } else {
+            try { anim.destroy(); } catch (_) {}
+            wrap.remove();
+            _finishLottieBuild(key, textures);
+          }
+        }
+
+        if ('requestIdleCallback' in window) {
+          requestIdleCallback(doSlice, { timeout: 800 });
+        } else {
+          setTimeout(function() { doSlice(null); }, 8);
+        }
+      }, 80);
+    }
+
+    function _buildLottieTex(code, data, cb) {
+      var key = 'lottie:' + code;
+      if (_emoteTexCache[key]) { cb(_emoteTexCache[key]); return; }
+      if (_emoteTexPending[key]) { _emoteTexPending[key].push(cb); return; }
+      _emoteTexPending[key] = [cb];
+      _startLottieChunkedBuild(key, data);
+    }
+
+    // --- Prewarm queue (one emote at a time during idle time) ---
+    var _prewarmQueue     = [];
+    var _prewarmRunning   = false;
+
+    function _schedulePrewarm() {
+      if (_prewarmRunning || !_prewarmQueue.length) return;
+      _prewarmRunning = true;
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(_runPrewarm, { timeout: 8000 });
+      } else {
+        setTimeout(_runPrewarm, 400);
+      }
+    }
+
+    function _runPrewarm() {
+      _prewarmRunning = false;
+      var code = _prewarmQueue.shift();
+      if (!code) return;
+      var key = 'lottie:' + code;
+      if (_emoteTexCache[key] || _emoteTexPending[key]) { _schedulePrewarm(); return; }
+      loadLottie(function() {
+        getLottieData(code, function(data) {
+          if (data) {
+            _buildLottieTex(code, data, function() { _schedulePrewarm(); });
+          } else {
+            _schedulePrewarm();
+          }
+        });
+      });
+    }
+
+    function _queueLottiePrewarm() {
+      var codes = [];
+      // Favorite emote first.
+      if (_ft_favoriteEmoteCode &&
+          !_ft_favoriteEmoteCode.startsWith('http') &&
+          !_ft_favoriteEmoteCode.startsWith('emoji:')) {
+        codes.push(_ft_favoriteEmoteCode);
+      }
+      loadEmotes(function() {
+        for (var i = 0; i < _emotes.length; i++) {
+          var em = _emotes[i];
+          if (em.type === 'lottie' && em.code) codes.push(em.code);
+        }
+        for (var j = 0; j < codes.length; j++) {
+          var c = codes[j];
+          var k = 'lottie:' + c;
+          if (!_emoteTexCache[k] && !_emoteTexPending[k] && _prewarmQueue.indexOf(c) === -1) {
+            _prewarmQueue.push(c);
+          }
+        }
+        _schedulePrewarm();
+      });
+    }
+
+    function _spawnPixiEmote(cellRef, texEntry, getCellFn) {
+      if (!_tryBuildEmoteLayer()) return false;
+      if (!cellRef || cellRef._9491) return false;
+      var pixi = globalThis.__ryuPixi;
+      if (!pixi) return false;
+      var firstTex = texEntry.type === 'lottie' ? texEntry.textures[0] : texEntry.tex;
+      if (!firstTex) return false;
+      var spr = null;
+      try { spr = new pixi.Sprite(firstTex); } catch (_) { return false; }
+      spr.anchor.set(0.5, 0.5);
+      spr.alpha = 1;
+      spr.scale.set((cellRef._1904 * EMOTE_CELL_RATIO) / EMOTE_TEX_SIZE);
+      spr.x = cellRef._7847;
+      spr.y = cellRef._9202;
+      _emoteLayer.addChild(spr);
+      var e = {
+        sprite: spr, startTime: performance.now(),
+        cellRef: cellRef, refreshCell: getCellFn || null,
+        dead: false, frameTimer: null, lottieTeardown: null
+      };
+      if (texEntry.type === 'lottie' && texEntry.textures.length > 1) {
+        var fi = 0;
+        var periodMs = Math.max(16, Math.round(1000 / texEntry.fps));
+        e.frameTimer = setInterval(function() {
+          if (e.dead) { clearInterval(e.frameTimer); e.frameTimer = null; return; }
+          // Advance once per tick; stop at last frame (hold) so the animation
+          // plays exactly once rather than looping during the emote lifetime.
+          if (fi < texEntry.totalFrames - 1) {
+            fi++;
+            try { e.sprite.texture = texEntry.textures[fi]; } catch (_) {}
+          }
+        }, periodMs);
+      } else if (texEntry.type === 'gif' && texEntry.baseTex) {
+        // Copy current animated GIF frame to canvas + refresh GPU texture at
+        // 10 fps — bounded cost, avoids per-frame GPU upload.
+        e.frameTimer = setInterval(function() {
+          if (e.dead) { clearInterval(e.frameTimer); e.frameTimer = null; return; }
+          try {
+            texEntry.canvas.getContext('2d').drawImage(texEntry.img, 0, 0, EMOTE_TEX_SIZE, EMOTE_TEX_SIZE);
+            texEntry.baseTex.update();
+          } catch (_) {}
+        }, 100);
+      }
+      while (_activeEmotes.length >= MAX_ACTIVE_EMOTES) { _killEmote(_activeEmotes.shift()); }
+      _activeEmotes.push(e);
+      return true;
     }
 
     function spawnLottieEmote(code, getCellFn) {
+      var cellRef = getCellFn();
+      if (!cellRef) return;
+      if (!_tryBuildEmoteLayer()) return;
       loadLottie(function() {
         getLottieData(code, function(data) {
           if (!data) return;
-          _spawnDomEmote(getCellFn, function(el) {
-            var anim;
-            try {
-              anim = _lottie.loadAnimation({ container: el, renderer: 'canvas', loop: true, autoplay: true, animationData: data, rendererSettings: { clearCanvas: true } });
-            } catch (_) { return null; }
-            return function() { try { anim.destroy(); } catch (_) {} };
+          _buildLottieTex(code, data, function(entry) {
+            if (!entry) return;
+            var c = (cellRef && !cellRef._9491) ? cellRef : getCellFn();
+            _spawnPixiEmote(c, entry, getCellFn);
           });
         });
       });
     }
 
     function spawnEmojiEmote(label, getCellFn) {
-      _spawnDomEmote(getCellFn, function(el) {
-        var sz  = 200;
-        var cvs = document.createElement('canvas');
-        cvs.width = sz; cvs.height = sz;
-        cvs.style.cssText = 'width:100%;height:100%;';
-        var ctx = cvs.getContext('2d');
-        ctx.font          = Math.floor(sz * 0.7) + 'px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",serif';
-        ctx.textAlign     = 'center';
-        ctx.textBaseline  = 'middle';
-        ctx.fillText(label, sz / 2, sz / 2);
-        el.appendChild(cvs);
-        return null;
+      var cellRef = getCellFn();
+      if (!cellRef) return;
+      if (!_tryBuildEmoteLayer()) return;
+      _buildEmojiTex(label, function(entry) {
+        if (!entry) return;
+        var c = (cellRef && !cellRef._9491) ? cellRef : getCellFn();
+        _spawnPixiEmote(c, entry, getCellFn);
       });
     }
 
     function spawnGifEmote(url, getCellFn) {
-      _spawnDomEmote(getCellFn, function(el) {
-        var img = document.createElement('img');
-        img.src            = url;
-        img.style.cssText  = 'width:100%;height:100%;object-fit:contain;';
-        el.appendChild(img);
-        return null;
+      var cellRef = getCellFn();
+      if (!cellRef) return;
+      if (!_tryBuildEmoteLayer()) return;
+      _buildGifTex(url, function(entry) {
+        if (!entry) return;
+        var c = (cellRef && !cellRef._9491) ? cellRef : getCellFn();
+        _spawnPixiEmote(c, entry, getCellFn);
       });
     }
 
@@ -2988,21 +3289,51 @@
       triggerEmote(_ft_favoriteEmoteCode);
     }, true);
 
-    globalThis.__ryuSpawnRemoteEmote = function(username, code) {
-      if (!username || !code) return;
+    globalThis.__ryuSpawnRemoteEmote = function(usernameOrMsg, code) {
+      var msg = null;
+      if (usernameOrMsg && typeof usernameOrMsg === 'object') {
+        msg = usernameOrMsg;
+        code = msg.code;
+      }
+      var username = msg ? String(msg.user || '').trim() : String(usernameOrMsg || '').trim();
+      var clientId = msg ? String(msg.clientId || '').trim() : '';
+      var accountId = msg ? String(msg.accountId || '').trim() : '';
+      var gameName = msg ? String(msg.gameName || '').trim() : '';
+      if (!code) return;
+      function getPresenceByAccountId(id) {
+        if (!id || !globalThis.__ryuPresenceInfo) return null;
+        var presence = globalThis.__ryuPresenceInfo;
+        for (var cid in presence) {
+          if (!Object.prototype.hasOwnProperty.call(presence, cid)) continue;
+          var info = presence[cid];
+          if (info && String(info.accountId || '').trim() === id) return info;
+        }
+        return null;
+      }
       function getRemoteCell() {
-        const Be = globalThis.__Be, ne = globalThis.__ne;
-        if (!Be || !ne) return null;
+        const ne = globalThis.__ne;
+        if (!ne || !ne._2430) return null;
+        var expectedGameName = gameName;
+        if (!expectedGameName && clientId && globalThis.__ryuPresenceInfo && globalThis.__ryuPresenceInfo[clientId]) {
+          expectedGameName = String(globalThis.__ryuPresenceInfo[clientId].gameName || '').trim();
+        }
+        if (!expectedGameName && accountId) {
+          var accountPresence = getPresenceByAccountId(accountId);
+          if (accountPresence) expectedGameName = String(accountPresence.gameName || '').trim();
+        }
         let best = null;
-        for (const player of Be._1059._4221.values()) {
-          if (player._4625 === username) {
-            for (const cell of ne._2430.values()) {
-              if (cell._9491) continue;
-              if (cell._2182 && cell._2182._1059 === player) {
-                if (!best || cell._1904 > best._1904) best = cell;
-              }
-            }
-            break;
+        for (const cell of ne._2430.values()) {
+          if (cell._9491) continue;
+          if (!cell._2182 || !cell._2182._1059) continue;
+          var player = cell._2182._1059;
+          var playerUser = String(player._4625 || '').trim();
+          var playerGameName = String(player._6988 || '').trim();
+          var matched =
+            (expectedGameName && playerGameName === expectedGameName) ||
+            (username && playerUser === username) ||
+            (username && playerGameName === username);
+          if (matched) {
+            if (!best || cell._1904 > best._1904) best = cell;
           }
         }
         return best;
@@ -3086,8 +3417,10 @@
 
       if ('requestIdleCallback' in window) {
         window.requestIdleCallback(function() { _preloadGifs(); }, { timeout: 2000 });
+        window.requestIdleCallback(_queueLottiePrewarm, { timeout: 3000 });
       } else {
         setTimeout(_preloadGifs, 500);
+        setTimeout(_queueLottiePrewarm, 1500);
       }
       document.addEventListener('mousedown', function(e) {
         if (_picker && _picker.style.pointerEvents !== 'none' && !_picker.contains(e.target)) {
@@ -3221,6 +3554,7 @@
     let _trackedPlayers = [];
     let _trackedByKey = new Map();
     let _lastTrackedScanAt = 0;
+    const _seenKeys = new Set();
 
     function buildIndicatorBitmap() {
       if (!_img || !_img.naturalWidth || !_img.naturalHeight) return;
@@ -3333,7 +3667,7 @@
     function drawFrame() {
       if (!_teamLayer) return;
 
-      if (!_ft_teammateIndicatorOn || isRyuUiBlockingActive() || isRyuMenuOverlayVisible()) {
+      if (!_ft_teammateIndicatorOn || _ft_uiBlocking || _ft_menuOverlay) {
         _teamLayer.visible = false;
         return;
       }
@@ -3349,14 +3683,14 @@
       const tracked = collectTrackedPlayers(now, false);
       const texW = _imgWhite ? _imgWhite.width : 64;
       const RyuSprite = globalThis.__ryuPixi.Sprite;
-      const seen = new Set();
+      _seenKeys.clear();
 
       for (let i = 0; i < tracked.length; i++) {
         const entry = tracked[i];
         const cell = entry.cell;
         if (!cell || cell._9491) continue;
 
-        seen.add(entry.key);
+        _seenKeys.add(entry.key);
 
         if (!entry._sprite) {
           const spr = new RyuSprite(_indicatorTex);
@@ -3377,7 +3711,7 @@
 
       // Hide sprites for entries whose cells were not drawable this frame
       _trackedByKey.forEach(function(entry) {
-        if (entry._sprite && !seen.has(entry.key)) entry._sprite.visible = false;
+        if (entry._sprite && !_seenKeys.has(entry.key)) entry._sprite.visible = false;
       });
     }
 
@@ -4129,10 +4463,7 @@
 
     function toggleMicMute() {
       if (!globalThis.__ryuVoiceToggleMute) return;
-      var muted = !!globalThis.__ryuVoiceToggleMute();
-      if (globalThis.__ryuShowToast) {
-        globalThis.__ryuShowToast(muted ? 'Microphone muted.' : 'Microphone unmuted.', muted ? 'error' : 'success');
-      }
+      globalThis.__ryuVoiceToggleMute();
     }
 
     document.addEventListener('keydown', function(e) {
@@ -4954,6 +5285,19 @@
         if (fastSpawnOn) {
           fastEl = getFastSpawnEl();
           setFastSpawnVisible(fastEl, true);
+          // Position to the right of the split counter when it's visible,
+          // otherwise fall back to centered above the HUD.
+          var splitEl = _splitEl;
+          if (splitEl && splitEl.style.display !== 'none') {
+            var rect = splitEl.getBoundingClientRect();
+            fastEl.style.left = (rect.right + 8) + 'px';
+            fastEl.style.bottom = '12px';
+            fastEl.style.transform = 'none';
+          } else {
+            fastEl.style.left = '50%';
+            fastEl.style.bottom = '52px';
+            fastEl.style.transform = 'translateX(-50%)';
+          }
         } else if (fastEl) {
           setFastSpawnVisible(fastEl, false);
         }

@@ -107,6 +107,13 @@
     } catch (_) { return ''; }
   }
 
+  function getModeName() {
+    try {
+      const el = document.getElementById('mame-ssb-mode-selected');
+      return String(el && el.textContent || '').trim();
+    } catch (_) { return ''; }
+  }
+
   function getProfileId() {
     if (_profileId) return _profileId;
     try {
@@ -214,6 +221,42 @@
     return hasSignedInRelayAccount() ? _signedInAuthState.deviceToken : getDeviceToken();
   }
 
+  function sendJoin(force) {
+    if (!_relayWs || _relayWs.readyState !== 1) return false;
+    const user = getUsername();
+    if (!user || user === 'Unknown') return false;
+    const payload = {
+      type: 'join',
+      clientId: _clientId,
+      accountId: getRelayAccountId(),
+      deviceToken: getRelayDeviceToken(),
+      profileId: getProfileId(),
+      user: user,
+      gameName: getGameName(),
+      modeName: getModeName(),
+      gameTag: getGameTag(),
+      activeBadge: getOwnActiveBadge()
+    };
+    var _joinMM = globalThis.__ryuMMOwn;
+    if (_joinMM && _joinMM.visible && _joinMM.point) {
+      payload.mmX = Math.round(_joinMM.point.x * 10) / 10;
+      payload.mmY = Math.round(_joinMM.point.y * 10) / 10;
+    }
+    var _joinWS = window._ryuWS;
+    if (_joinWS && _joinWS.url && _joinWS.url.includes('ryuten.io')) {
+      payload.serverUrl = _joinWS.url.split('?')[0] + '?';
+    }
+    const sig = 'join|' + payload.accountId + '|' + payload.user + '|' + payload.gameName + '|' + payload.gameTag + '|' + payload.activeBadge;
+    if (!force && sig === _lastPresenceSig) return true;
+    _lastPresenceSig = sig;
+    try {
+      _relayWs.send(JSON.stringify(payload));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function getPublicAuthState() {
     if (!hasSignedInRelayAccount()) {
       return {
@@ -240,7 +283,7 @@
     if (prevAccountId !== nextAccountId) {
       clearBadgeAccountState();
       _lastPresenceSig = '';
-      if (_relayWs && _relayWs.readyState === 1) sendPresence(true);
+      if (_relayWs && _relayWs.readyState === 1) sendJoin(true);
     }
   }
 
@@ -445,16 +488,42 @@
       clearRelayBadge(user, clientId);
       return;
     }
-    if (user) globalThis.__ryuRelayBadgesByUser[normalizeUser(user)] = badgeId;
-    if (clientId) globalThis.__ryuRelayBadgesByClient[clientId] = badgeId;
-    globalThis.__ryuRelayBadgeVersion++;
-    if (globalThis.__ryuRegisterCustomBadgeTitles) globalThis.__ryuRegisterCustomBadgeTitles();
+    var changed = false;
+    if (user) {
+      var uk = normalizeUser(user);
+      if (globalThis.__ryuRelayBadgesByUser[uk] !== badgeId) {
+        globalThis.__ryuRelayBadgesByUser[uk] = badgeId;
+        changed = true;
+      }
+    }
+    if (clientId) {
+      if (globalThis.__ryuRelayBadgesByClient[clientId] !== badgeId) {
+        globalThis.__ryuRelayBadgesByClient[clientId] = badgeId;
+        changed = true;
+      }
+    }
+    if (changed) {
+      globalThis.__ryuRelayBadgeVersion++;
+      if (globalThis.__ryuRegisterCustomBadgeTitles) globalThis.__ryuRegisterCustomBadgeTitles();
+    }
   }
 
   function clearRelayBadge(user, clientId) {
-    if (user) delete globalThis.__ryuRelayBadgesByUser[normalizeUser(user)];
-    if (clientId) delete globalThis.__ryuRelayBadgesByClient[clientId];
-    globalThis.__ryuRelayBadgeVersion++;
+    var changed = false;
+    if (user) {
+      var uk = normalizeUser(user);
+      if (uk in globalThis.__ryuRelayBadgesByUser) {
+        delete globalThis.__ryuRelayBadgesByUser[uk];
+        changed = true;
+      }
+    }
+    if (clientId) {
+      if (clientId in globalThis.__ryuRelayBadgesByClient) {
+        delete globalThis.__ryuRelayBadgesByClient[clientId];
+        changed = true;
+      }
+    }
+    if (changed) globalThis.__ryuRelayBadgeVersion++;
   }
 
   function applyPresenceIdentity(msg) {
@@ -466,7 +535,17 @@
     }
     if (msg.user) globalThis.__ryuPresenceInfo[msg.clientId].user = msg.user;
     if (msg.gameName) globalThis.__ryuPresenceInfo[msg.clientId].gameName = msg.gameName;
+    if (msg.modeName) globalThis.__ryuPresenceInfo[msg.clientId].modeName = msg.modeName;
     if (msg.gameTag) globalThis.__ryuPresenceInfo[msg.clientId].gameTag = msg.gameTag;
+    // The relay server verifies accountId against the DB and re-stamps it on the
+    // message before broadcasting, so presence accountId is trustworthy.
+    if (msg.accountId) globalThis.__ryuPresenceInfo[msg.clientId].accountId = msg.accountId;
+    // Minimap position (0-100 percent) — used to show off-screen relay users on map.
+    if (typeof msg.mmX === 'number') globalThis.__ryuPresenceInfo[msg.clientId].mmX = msg.mmX;
+    if (typeof msg.mmY === 'number') globalThis.__ryuPresenceInfo[msg.clientId].mmY = msg.mmY;
+    // Game server URL — used by the Users Online panel join button.
+    if (msg.serverUrl) globalThis.__ryuPresenceInfo[msg.clientId].serverUrl = msg.serverUrl;
+    else if (msg.type === 'leave') globalThis.__ryuPresenceInfo[msg.clientId].serverUrl = '';
   }
 
   function rememberRelayBadgeIdentity(msg) {
@@ -629,8 +708,8 @@
             globalThis.__ryuRenderCmdText(m.x, m.y, m.text || '', { imageUrl: m.imageUrl || '' });
           }
         }
-        if (m.type === 'emote' && m.user && m.code) {
-          if (globalThis.__ryuSpawnRemoteEmote) globalThis.__ryuSpawnRemoteEmote(m.user, m.code);
+        if (m.type === 'emote' && m.code) {
+          if (globalThis.__ryuSpawnRemoteEmote) globalThis.__ryuSpawnRemoteEmote(m);
         }
       }
     }
@@ -677,9 +756,9 @@
       }
     }
 
-    if (msg.type === 'emote' && msg.user && msg.code) {
+    if (msg.type === 'emote' && msg.code) {
       if (msg.clientId !== _clientId && globalThis.__ryuSpawnRemoteEmote) {
-        globalThis.__ryuSpawnRemoteEmote(msg.user, msg.code);
+        globalThis.__ryuSpawnRemoteEmote(msg);
       }
     }
 
@@ -732,19 +811,7 @@
           return;
         }
         Promise.allSettled([ensureAnonymousAccount(), ensureExtensionAuthState()]).finally(function() {
-          try {
-            _relayWs.send(JSON.stringify({
-              type: 'join',
-              clientId: _clientId,
-              accountId: getRelayAccountId(),
-              deviceToken: getRelayDeviceToken(),
-              profileId: getProfileId(),
-              user: user,
-              gameName: getGameName(),
-              gameTag: getGameTag(),
-              activeBadge: getOwnActiveBadge()
-            }));
-          } catch (_) {}
+          sendJoin(true);
         });
         // broadcast kill feed avatar if set
         const _kfPic = globalThis.__ryuKfProfilePic;
@@ -757,7 +824,7 @@
         // re-announce once after 3s to catch anyone who joined slightly after
         if (!isReannounce) setTimeout(function() { announce(true, 0); }, 3000);
         if (!_presenceTimer) {
-          _presenceTimer = setInterval(function() { sendPresence(false); }, 2000);
+          _presenceTimer = setInterval(function() { sendPresence(true); }, 500);
         }
       }
       announce(false, 0);
@@ -800,9 +867,21 @@
       profileId: getProfileId(),
       user,
       gameName: getGameName(),
+      modeName: getModeName(),
       gameTag: getGameTag(),
       activeBadge: getOwnActiveBadge()
     };
+    // Always include current minimap position so other clients can track us
+    // even when we're off their viewport. __ryuMMOwn.point is 0-100 percent.
+    var _mm = globalThis.__ryuMMOwn;
+    if (_mm && _mm.visible && _mm.point) {
+      payload.mmX = Math.round(_mm.point.x * 10) / 10;
+      payload.mmY = Math.round(_mm.point.y * 10) / 10;
+    }
+    var _presWS = window._ryuWS;
+    if (_presWS && _presWS.url && _presWS.url.includes('ryuten.io')) {
+      payload.serverUrl = _presWS.url.split('?')[0] + '?';
+    }
     const sig = payload.user + '|' + payload.gameName + '|' + payload.gameTag + '|' + payload.activeBadge;
     if (!force && sig === _lastPresenceSig) return true;
     _lastPresenceSig = sig;
@@ -831,10 +910,6 @@
     return bridgeRequest('google_sign_in').then(function(state) {
       applySignedInAuthState(state || null);
       globalThis.__ryuAccountId = getRelayAccountId();
-      if (globalThis.__ryuShowToast && hasSignedInRelayAccount()) {
-        const label = (_signedInAuthState && (_signedInAuthState.name || _signedInAuthState.email)) || 'Google account';
-        globalThis.__ryuShowToast('Signed in as ' + label + '.', 'success');
-      }
       return getPublicAuthState();
     });
   };
@@ -842,7 +917,6 @@
     return bridgeRequest('sign_out').then(function(state) {
       applySignedInAuthState(state || null);
       globalThis.__ryuAccountId = getRelayAccountId();
-      if (globalThis.__ryuShowToast) globalThis.__ryuShowToast('Signed out of Ryutheme account features.', 'success');
       return getPublicAuthState();
     });
   };
@@ -934,7 +1008,13 @@
   // emote broadcast
   globalThis.__ryuBroadcastEmote = function(code) {
     const user = getUsername();
-    relaySend({ type: 'emote', user, code });
+    relaySend({
+      type: 'emote',
+      user,
+      code,
+      gameName: getGameName(),
+      gameTag: getGameTag()
+    });
   };
 
   connectRelay();

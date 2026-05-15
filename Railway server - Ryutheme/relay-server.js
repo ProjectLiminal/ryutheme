@@ -26,7 +26,24 @@ const BADGE_CONFIG = {
 };
 const VALID_BADGES = new Set(Object.keys(BADGE_CONFIG));
 
+function setCorsHeaders(req, res) {
+  const origin = String((req && req.headers && req.headers.origin) || '').trim();
+  const allowOrigin = origin === 'https://ryuten.io' ? origin : '*';
+  res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Vary', 'Origin');
+}
+
 const server = http.createServer(async (req, res) => {
+  setCorsHeaders(req, res);
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -81,6 +98,7 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         provider: 'google',
         accountId: result.accountId,
+        displayName: result.displayName || '',
         deviceToken: result.deviceToken,
         email: result.email,
         emailVerified: result.emailVerified,
@@ -93,6 +111,44 @@ const server = http.createServer(async (req, res) => {
       console.error('[relay] google auth failed:', err.message);
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: err.message || 'Google sign-in failed.' }));
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/account/name') {
+    if (!db.hasDatabase) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'Database is not configured.' }));
+      return;
+    }
+    try {
+      const body = await readJsonBody(req);
+      const accountId = safeAccountId(body && body.accountId);
+      const deviceToken = String((body && body.deviceToken) || '').trim();
+      const displayName = safeAccountName(body && body.displayName);
+      if (!accountId || !deviceToken) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Missing accountId or deviceToken.' }));
+        return;
+      }
+      if (!displayName) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Display name cannot be empty.' }));
+        return;
+      }
+      const auth = await authenticateAnonymousAccount(accountId, deviceToken);
+      if (!auth) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Authentication failed.' }));
+        return;
+      }
+      await db.query('UPDATE users SET display_name = $1 WHERE public_id = $2', [displayName, accountId]);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, displayName }));
+    } catch (err) {
+      console.error('[relay] set display name failed:', err.message);
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: err.message || 'Failed to set display name.' }));
     }
     return;
   }
@@ -146,6 +202,10 @@ function safeProfileId(profileId) {
 function safeAccountId(accountId) {
   const value = String(accountId || '').trim();
   return /^acc_[a-f0-9]{24}$/i.test(value) ? value : '';
+}
+
+function safeAccountName(name) {
+  return String(name || '').trim().slice(0, 24);
 }
 
 function safeBadgeId(badgeId) {
@@ -204,7 +264,7 @@ async function findOrCreateAnonymousAccount(deviceToken) {
   if (normalizedToken) {
     const tokenHash = hashDeviceToken(normalizedToken);
     const existing = await db.query(`
-      SELECT users.public_id
+      SELECT users.public_id, users.display_name
       FROM devices
       INNER JOIN users ON users.id = devices.user_id
       WHERE devices.device_token_hash = $1
@@ -220,6 +280,7 @@ async function findOrCreateAnonymousAccount(deviceToken) {
 
       return {
         accountId: existing.rows[0].public_id,
+        displayName: String(existing.rows[0].display_name || '').trim(),
         deviceToken: normalizedToken,
         isNewAccount: false
       };
@@ -243,6 +304,7 @@ async function findOrCreateAnonymousAccount(deviceToken) {
 
   return {
     accountId: insertedUser.rows[0].public_id,
+    displayName: '',
     deviceToken: nextDeviceToken,
     isNewAccount: true
   };
@@ -327,7 +389,7 @@ async function signInWithGoogle(authPayload) {
   const emailVerified = !!payload.email_verified;
 
   const existing = await db.query(`
-    SELECT users.id, users.public_id
+    SELECT users.id, users.public_id, users.display_name
     FROM google_accounts
     INNER JOIN users ON users.id = google_accounts.user_id
     WHERE google_accounts.google_sub = $1
@@ -336,11 +398,13 @@ async function signInWithGoogle(authPayload) {
 
   let userId = 0;
   let accountId = '';
+  let displayName = '';
   let isNewAccount = false;
 
   if (existing.rows[0]) {
     userId = Number(existing.rows[0].id);
     accountId = String(existing.rows[0].public_id || '');
+    displayName = String(existing.rows[0].display_name || '').trim();
     await db.query(`
       UPDATE google_accounts
       SET email = $2,
@@ -376,6 +440,7 @@ async function signInWithGoogle(authPayload) {
   return {
     provider: 'google',
     accountId,
+    displayName,
     deviceToken,
     email,
     emailVerified,
@@ -489,6 +554,18 @@ function getIdentityKey(session, msg) {
   return '';
 }
 
+function hasSignedInRyuthemeAccount(session, msg) {
+  const accountId = safeAccountId((msg && msg.accountId) || session.accountId || '');
+  return !!accountId;
+}
+
+function canUseServerPerk(session, msg, perk) {
+  if (perk === 'badges' || perk === 'proxVoice') {
+    return hasSignedInRyuthemeAccount(session, msg);
+  }
+  return true;
+}
+
 function getRoom(roomId) {
   if (!rooms.has(roomId)) rooms.set(roomId, new Map());
   return rooms.get(roomId);
@@ -577,6 +654,9 @@ async function handleBadgeEquip(room, sessionId, session, msg) {
   if (msg.gameName !== undefined) session.gameName = safeDisplayName(msg.gameName);
   if (msg.gameTag !== undefined) session.gameTag = safeDisplayName(msg.gameTag);
   const rawBadgeId = String(msg.badgeId || '').trim();
+  if (!canUseServerPerk(session, msg, 'badges')) {
+    return sendBadgeReject(session, rawBadgeId, 'Sign in with a Ryutheme account to use badges.');
+  }
   if (!rawBadgeId) return approveBadge(room, sessionId, session, '');
   const badgeId = safeBadgeId(rawBadgeId);
   const identityKey = getIdentityKey(session, msg);
@@ -593,6 +673,9 @@ async function handleBadgeUnlock(room, sessionId, session, msg) {
   if (msg.gameName !== undefined) session.gameName = safeDisplayName(msg.gameName);
   if (msg.gameTag !== undefined) session.gameTag = safeDisplayName(msg.gameTag);
   const badgeId = safeBadgeId(msg.badgeId);
+  if (!canUseServerPerk(session, msg, 'badges')) {
+    return sendBadgeReject(session, badgeId, 'Sign in with a Ryutheme account to use badges.');
+  }
   const identityKey = getIdentityKey(session, msg);
   const config = badgeId ? BADGE_CONFIG[badgeId] : null;
   if (!badgeId || !identityKey || !config || !config.passwordEnv) {
@@ -660,6 +743,7 @@ wss.on('connection', function(ws, req) {
     profileId: '',
     identityKey: '',
     gameName: '',
+    modeName: '',
     gameTag: '',
     activeBadge: '',
     clientId: null,
@@ -683,6 +767,7 @@ wss.on('connection', function(ws, req) {
         type: 'join',
         user: s.user,
         gameName: s.gameName || '',
+        modeName: s.modeName || '',
         gameTag: s.gameTag || '',
         clientId: s.clientId || null,
         activeBadge: s.activeBadge || ''
@@ -727,12 +812,14 @@ wss.on('connection', function(ws, req) {
       session.clientId = safeClientId(msg.clientId) || null;
       session.profileId = safeProfileId(msg.profileId) || '';
       session.gameName = safeDisplayName(msg.gameName);
+      session.modeName = safeDisplayName(msg.modeName);
       session.gameTag = safeDisplayName(msg.gameTag);
       msg.user = session.user;
       msg.clientId = session.clientId;
       if (session.accountId) msg.accountId = session.accountId;
       msg.profileId = session.profileId;
       msg.gameName = session.gameName;
+      msg.modeName = session.modeName;
       msg.gameTag = session.gameTag;
       const identityKey = getIdentityKey(session, msg);
       session.identityKey = identityKey;
@@ -740,7 +827,7 @@ wss.on('connection', function(ws, req) {
       if (hasActiveBadgeField && identityKey) {
         const requestedBadge = safeBadgeId(msg.activeBadge);
         let activeBadge = '';
-        if (requestedBadge) {
+        if (requestedBadge && canUseServerPerk(session, msg, 'badges')) {
           const config = BADGE_CONFIG[requestedBadge];
           if (config && config.free && !await hasBadgeEntitlement(identityKey, requestedBadge)) {
             await grantBadgeEntitlement(identityKey, requestedBadge);
@@ -798,9 +885,18 @@ wss.on('connection', function(ws, req) {
       return;
     }
 
+    if ((msg.type === 'voice_state' || msg.type === 'voice_offer' || msg.type === 'voice_answer' || msg.type === 'voice_ice')
+      && !canUseServerPerk(session, msg, 'proxVoice')) {
+      return;
+    }
+
     if (TARGETED_TYPES.has(msg.type)) {
       const target = findSessionByClientId(room, msg.targetClientId);
       if (!target) return;
+      if ((msg.type === 'voice_offer' || msg.type === 'voice_answer' || msg.type === 'voice_ice')
+        && !canUseServerPerk(target, null, 'proxVoice')) {
+        return;
+      }
       sendTo(target, msg);
       return;
     }

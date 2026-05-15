@@ -16,6 +16,7 @@
   var _menuSibObserver = null;
   var _menuUiObserver = null;
   var _menuSkinTimer = null;
+  var _menuOnlineTimer = null;
 
   function loadTheme() {
     try {
@@ -555,6 +556,58 @@
     document.body.appendChild(overlay);
   }
 
+  function getRyuAccountState() {
+    try {
+      return globalThis.__ryuGetAuthState ? globalThis.__ryuGetAuthState() : (globalThis.__ryuAuthState || {});
+    } catch (_) {
+      return globalThis.__ryuAuthState || {};
+    }
+  }
+
+  function ryuHasRyuthemeAccount() {
+    var state = getRyuAccountState();
+    return !!(state && state.signedIn && state.accountId);
+  }
+
+  function createRyuthemeFeatureOverlay(message, onSuccess) {
+    var overlay = document.createElement('div');
+    overlay.className = 'ryu-feature-lock-overlay';
+    overlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(9,13,18,0.78);backdrop-filter:blur(4px);z-index:15;';
+    var box = document.createElement('div');
+    box.style.cssText = 'width:min(420px,86%);padding:26px 28px;background:rgba(13,17,23,0.96);border:1px solid rgba(255,255,255,0.12);border-radius:12px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,0.32);';
+    var icon = document.createElement('div');
+    icon.textContent = 'LOCKED';
+    icon.style.cssText = 'font-family:\"Noto Sans\",sans-serif;font-size:9px;font-weight:900;letter-spacing:3px;color:rgba(255,255,255,0.48);';
+    var title = document.createElement('div');
+    title.textContent = 'Create an account to access this feature!';
+    title.style.cssText = 'font-family:\"Noto Sans\",sans-serif;font-size:18px;font-weight:900;line-height:1.25;color:#fff;';
+    var sub = document.createElement('div');
+    sub.textContent = message || 'Sign in with your Ryutheme account to continue.';
+    sub.style.cssText = 'font-family:\"Noto Sans\",sans-serif;font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);max-width:320px;';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'SIGN IN';
+    btn.style.cssText = 'height:34px;padding:0 20px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.18);border-radius:7px;color:rgba(255,255,255,0.96);font-family:\"Noto Sans\",sans-serif;font-size:10px;font-weight:800;letter-spacing:1.6px;cursor:pointer;';
+    btn.addEventListener('click', function() {
+      if (!globalThis.__ryuSignInWithGoogle) return;
+      btn.disabled = true;
+      btn.textContent = 'CONNECTING...';
+      Promise.resolve(globalThis.__ryuSignInWithGoogle()).then(function(state) {
+        if (typeof onSuccess === 'function') onSuccess(state);
+      }).catch(function(err) {
+        btn.disabled = false;
+        btn.textContent = 'SIGN IN';
+        if (globalThis.__ryuShowToast) globalThis.__ryuShowToast((err && err.message) || 'Google sign-in failed.', 'error');
+      });
+    });
+    box.appendChild(icon);
+    box.appendChild(title);
+    box.appendChild(sub);
+    box.appendChild(btn);
+    overlay.appendChild(box);
+    return overlay;
+  }
+
   // panel DOM
   function buildPanel(nativeTRB) {
     if (document.getElementById(TRB_PANEL_ID)) return;
@@ -881,9 +934,11 @@
 
       /* Ã¢â€â‚¬Ã¢â€â‚¬ Menu UI shell Ã¢â€â‚¬Ã¢â€â‚¬ */
       #ryu-menu-ui {
+        --ryu-menu-online-w: 240px;
         --ryu-menu-left-w: 360px;
         --ryu-menu-center-w: 600px;
         --ryu-menu-right-w: 340px;
+        --ryu-menu-rt-w: 320px;
         --ryu-menu-gap: 10px;
         --ryu-menu-top: 50%;
         --ryu-orb-size: 202px;
@@ -905,21 +960,23 @@
         transform: translate(-50%, -50%);
         z-index: 9970;
         display: none;
-        grid-template-columns: var(--ryu-menu-left-w) var(--ryu-menu-center-w) var(--ryu-menu-right-w);
+        grid-template-columns: var(--ryu-menu-online-w) var(--ryu-menu-left-w) var(--ryu-menu-center-w) var(--ryu-menu-right-w) var(--ryu-menu-rt-w);
         gap: var(--ryu-menu-gap);
         font-family: 'Noto Sans', sans-serif;
         user-select: none;
         pointer-events: all;
-        width: min(calc(var(--ryu-menu-left-w) + var(--ryu-menu-center-w) + var(--ryu-menu-right-w) + (var(--ryu-menu-gap) * 2)), 96vw);
+        width: min(calc(var(--ryu-menu-online-w) + var(--ryu-menu-left-w) + var(--ryu-menu-center-w) + var(--ryu-menu-right-w) + var(--ryu-menu-rt-w) + (var(--ryu-menu-gap) * 4)), 96vw);
         max-width: 96vw;
       }
       #ryu-menu-ui.ryu-menu-visible {
         display: grid;
       }
       #ryu-menu-ui.ryu-menu-compact {
+        --ryu-menu-online-w: 200px;
         --ryu-menu-left-w: 304px;
         --ryu-menu-center-w: 516px;
         --ryu-menu-right-w: 292px;
+        --ryu-menu-rt-w: 272px;
         --ryu-menu-gap: 8px;
         --ryu-menu-top: 48.5%;
         --ryu-orb-size: 176px;
@@ -937,9 +994,11 @@
         --ryu-build-info-pad-bottom: 12px;
       }
       #ryu-menu-ui.ryu-menu-tight {
+        --ryu-menu-online-w: 180px;
         --ryu-menu-left-w: 266px;
         --ryu-menu-center-w: 432px;
         --ryu-menu-right-w: 252px;
+        --ryu-menu-rt-w: 236px;
         --ryu-menu-gap: 8px;
         --ryu-menu-top: 46.5%;
         --ryu-orb-size: 142px;
@@ -973,9 +1032,56 @@
       }
 
       /* Ã¢â€â‚¬Ã¢â€â‚¬ Section label Ã¢â€â‚¬Ã¢â€â‚¬ */
+      /* —— Users Online panel —— */
+      #ryu-menu-online { overflow: hidden; }
+      .ryu-online-list {
+        flex: 1; overflow-y: auto; padding: 4px 0 8px;
+        scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
+      }
+      .ryu-online-list::-webkit-scrollbar { width: 4px; }
+      .ryu-online-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+      .ryu-online-empty {
+        padding: 20px 14px; text-align: center;
+        font-size: 11px; color: rgba(255,255,255,0.28); letter-spacing: 0.5px;
+      }
+      .ryu-online-row {
+        display: flex; align-items: center; gap: 6px;
+        padding: 5px 10px 5px 12px;
+        transition: background 0.12s;
+      }
+      .ryu-online-row:hover { background: rgba(255,255,255,0.04); }
+      .ryu-online-info { flex: 1; min-width: 0; }
+      .ryu-online-name {
+        font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.88);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .ryu-online-server {
+        font-size: 10px; color: rgba(255,255,255,0.34); letter-spacing: 0.3px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        margin-top: 1px;
+      }
+      .ryu-online-dot {
+        width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+        background: #22d3ee; box-shadow: 0 0 5px rgba(34,211,238,0.6);
+      }
+      .ryu-online-join-btn {
+        flex-shrink: 0; height: 24px; padding: 0 8px;
+        background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 5px; color: rgba(255,255,255,0.7); font-size: 10px;
+        font-weight: 700; letter-spacing: 1px; cursor: pointer;
+        transition: all 0.12s; font-family: inherit;
+      }
+      .ryu-online-join-btn:hover {
+        background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.25); color: #fff;
+      }
+      .ryu-online-count {
+        font-size: 10px; color: rgba(255,255,255,0.38); padding: 0 12px 6px;
+        letter-spacing: 0.5px;
+      }
+
       .ryu-menu-label {
-        font-size: 9px; font-weight: 700; letter-spacing: 3px;
-        color: rgba(255,255,255,0.3); text-transform: uppercase;
+        font-size: 10px; font-weight: 950; letter-spacing: 3px;
+        color: rgba(255,255,255,0.94); text-transform: uppercase;
         padding: 12px 14px 8px;
         font-family: 'Noto Sans', sans-serif;
       }
@@ -1303,9 +1409,10 @@
         margin: auto;
         width: 100%;
         height: 100%;
-        object-fit: contain;
+        object-fit: cover;
+        object-position: center;
         display: block;
-        z-index: 1;
+        z-index: 2;
       }
       .ryu-acct-avatar-fallback {
         position: relative;
@@ -1346,6 +1453,26 @@
       .ryu-acct-tag {
         font-size: 9px; font-weight: 600;
         color: rgba(255,255,255,0.72); letter-spacing: 3px; text-transform: uppercase;
+      }
+      .ryu-acct-subaction {
+        appearance: none;
+        background: transparent;
+        border: 0;
+        padding: 0;
+        margin: 0;
+        color: rgba(255,255,255,0.62);
+        font-family: 'Noto Sans', sans-serif;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+        text-transform: none;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        cursor: pointer;
+        line-height: 1.2;
+      }
+      .ryu-acct-subaction:hover {
+        color: rgba(255,255,255,0.92);
       }
       .ryu-acct-stats {
         display: grid; grid-template-columns: 1fr 1fr;
@@ -1391,49 +1518,309 @@
       .ryu-acct-btn.secondary:hover {
         background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.18); color: rgba(255,255,255,0.9);
       }
-      .ryu-acct-owned {
-        margin: 0 14px 12px;
-        padding: 12px 12px 10px;
-        background: rgba(255,255,255,0.03);
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 10px;
+      .ryu-acct-meta-links {
+        margin-top: 8px;
+        display: flex;
+        justify-content: center;
+        gap: 10px;
       }
-      .ryu-acct-owned-header { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
-      .ryu-acct-owned-title {
-        font-family: 'Noto Sans', sans-serif; font-size: 9px; font-weight: 800;
-        letter-spacing: 2.5px; color: rgba(255,255,255,0.76); text-transform: uppercase;
+      .ryu-acct-meta-link {
+        font-family: 'Noto Sans', sans-serif;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 1.4px;
+        color: rgba(255,255,255,0.48);
+        text-decoration: none;
+        border-bottom: 1px dotted rgba(255,255,255,0.18);
+        cursor: pointer;
       }
-      .ryu-acct-owned-count {
-        font-family: 'Noto Sans', sans-serif; font-size: 9px; font-weight: 800;
-        letter-spacing: 1.5px; color: rgba(255,255,255,0.42);
+      .ryu-acct-meta-link:hover {
+        color: rgba(255,255,255,0.92);
+        border-bottom-color: rgba(255,255,255,0.46);
       }
-      .ryu-acct-owned-list { display:flex; flex-wrap:wrap; gap:8px; }
-      .ryu-acct-owned-empty {
-        font-family: 'Noto Sans', sans-serif; font-size: 10px; line-height: 1.5;
-        color: rgba(255,255,255,0.44);
+      #ryu-account-popup-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 100001;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: rgba(4,7,11,0.72);
+        backdrop-filter: blur(5px);
       }
-      .ryu-acct-badge-chip {
-        min-width: 0; display:flex; align-items:center; gap:9px; padding:8px 10px;
-        border-radius: 9px; background: rgba(255,255,255,0.04);
-        border: 1px solid rgba(255,255,255,0.08); flex: 1 1 calc(50% - 4px);
+      #ryu-account-popup-overlay::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.12) 2px, rgba(0,0,0,0.12) 4px);
+        pointer-events: none;
       }
-      .ryu-acct-badge-chip.owned { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.18); }
-      .ryu-acct-badge-chip.active { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.22); }
-      .ryu-acct-badge-icon {
-        width: 26px; height: 26px; flex-shrink: 0; border-radius: 7px;
-        background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
-        object-fit: contain; padding: 3px; box-sizing: border-box;
+      .ryu-account-popup,
+      .ryu-account-changelog {
+        position: relative;
+        width: min(460px, calc(100vw - 32px));
+        max-height: min(92vh, 860px);
+        overflow: auto;
+        background: rgba(13,17,23,0.97);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 14px;
+        box-shadow: 0 30px 80px rgba(0,0,0,0.55), 0 0 60px rgba(255,255,255,0.04);
       }
-      .ryu-acct-badge-meta { min-width: 0; display:flex; flex-direction:column; gap:2px; }
-      .ryu-acct-badge-name {
-        font-family: 'Noto Sans', sans-serif; font-size: 10px; font-weight: 800; letter-spacing: 0.4px;
-        color: rgba(255,255,255,0.88); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      .ryu-account-changelog {
+        width: min(760px, calc(100vw - 32px));
       }
-      .ryu-acct-badge-state {
-        font-family: 'Noto Sans', sans-serif; font-size: 8px; font-weight: 800; letter-spacing: 1.8px;
-        color: rgba(255,255,255,0.46); text-transform: uppercase;
+      .ryu-account-popup-head {
+        padding: 28px 26px 22px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        background: linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 100%);
+        text-align: center;
       }
-      .ryu-acct-badge-chip.active .ryu-acct-badge-state { color: rgba(255,255,255,0.9); }
+      .ryu-account-popup-tag {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px 10px;
+        border-radius: 4px;
+        background: rgba(255,255,255,0.10);
+        border: 1px solid rgba(255,255,255,0.18);
+        color: rgba(255,255,255,0.94);
+        font-size: 9px;
+        font-weight: 900;
+        letter-spacing: 2.4px;
+        text-transform: uppercase;
+      }
+      .ryu-account-popup-title {
+        margin: 14px 0 6px;
+        font-family: 'Noto Sans', sans-serif;
+        font-size: 28px;
+        font-weight: 900;
+        line-height: 1.08;
+        color: #fff;
+      }
+      .ryu-account-popup-subtitle {
+        margin: 0 auto;
+        max-width: 340px;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.45;
+        color: rgba(255,255,255,0.62);
+      }
+      .ryu-account-popup-close {
+        position: absolute;
+        top: 12px;
+        right: 14px;
+        width: 24px;
+        height: 24px;
+        border: none;
+        border-radius: 4px;
+        background: transparent;
+        color: rgba(255,255,255,0.5);
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .ryu-account-popup-close:hover {
+        color: rgba(255,255,255,0.96);
+        background: rgba(255,255,255,0.06);
+      }
+      .ryu-account-popup-body {
+        padding: 18px 22px 8px;
+      }
+      .ryu-account-popup-label {
+        padding: 0 4px 10px;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 2.5px;
+        text-transform: uppercase;
+        color: rgba(255,255,255,0.42);
+      }
+      .ryu-account-popup-features {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .ryu-account-popup-feature {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 13px 14px;
+        background: rgba(255,255,255,0.025);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 8px;
+      }
+      .ryu-account-popup-icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 9px;
+        flex-shrink: 0;
+        background: linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(28,33,40,0.95) 100%);
+        border: 1px solid rgba(255,255,255,0.16);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(255,255,255,0.92);
+        font-size: 17px;
+      }
+      .ryu-account-popup-feature-name {
+        font-size: 13px;
+        font-weight: 800;
+        color: rgba(255,255,255,0.95);
+        text-transform: uppercase;
+      }
+      .ryu-account-popup-feature-desc {
+        margin-top: 3px;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1.4;
+        color: rgba(255,255,255,0.55);
+      }
+      .ryu-account-popup-actions {
+        padding: 16px 22px 22px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .ryu-account-popup-divider {
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
+        margin: 4px 0 6px;
+      }
+      .ryu-account-popup-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+      .ryu-account-popup-btn.primary {
+        color: #fff;
+        background: rgba(255,255,255,0.10);
+        border: 1px solid rgba(255,255,255,0.16);
+      }
+      .ryu-account-popup-btn.secondary {
+        background: transparent;
+        border: 1px solid rgba(255,255,255,0.10);
+        color: rgba(255,255,255,0.62);
+      }
+      .ryu-account-popup-btn:hover {
+        border-color: rgba(255,255,255,0.24);
+        color: #fff;
+        background: rgba(255,255,255,0.08);
+      }
+      .ryu-account-popup-meta {
+        text-align: center;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: rgba(255,255,255,0.32);
+      }
+      .ryu-account-popup-meta a {
+        color: rgba(255,255,255,0.55);
+        text-decoration: none;
+        border-bottom: 1px dotted rgba(255,255,255,0.25);
+      }
+      .ryu-account-popup-meta a:hover {
+        color: #fff;
+      }
+      .ryu-account-changelog-inner {
+        padding: 28px 26px 26px;
+      }
+      .ryu-account-changelog-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+      }
+      .ryu-account-changelog-title {
+        font-size: 34px;
+        font-weight: 900;
+        color: #fff;
+        line-height: 1;
+      }
+      .ryu-account-changelog-close {
+        border: 1px solid rgba(255,255,255,0.10);
+        background: transparent;
+        color: rgba(255,255,255,0.56);
+        border-radius: 8px;
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+      .ryu-account-release {
+        display: grid;
+        grid-template-columns: 130px 1fr;
+        gap: 24px;
+        padding: 22px 0;
+        border-top: 1px solid rgba(255,255,255,0.07);
+      }
+      .ryu-account-release:last-child {
+        border-bottom: 1px solid rgba(255,255,255,0.07);
+      }
+      .ryu-account-release-version {
+        font-size: 24px;
+        font-weight: 900;
+        color: #fff;
+      }
+      .ryu-account-release-date {
+        margin-top: 8px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: rgba(255,255,255,0.42);
+      }
+      .ryu-account-release-summary {
+        margin: 0 0 12px;
+        font-size: 18px;
+        font-weight: 700;
+        color: #fff;
+      }
+      .ryu-account-change {
+        display: grid;
+        grid-template-columns: 78px 1fr;
+        gap: 14px;
+        align-items: baseline;
+        font-size: 14px;
+        line-height: 1.55;
+        color: rgba(255,255,255,0.82);
+      }
+      .ryu-account-change + .ryu-account-change {
+        margin-top: 8px;
+      }
+      .ryu-account-change-tag {
+        width: 70px;
+        padding: 4px 0;
+        border-radius: 4px;
+        text-align: center;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 1.4px;
+        text-transform: uppercase;
+      }
+      .ryu-account-change-tag.new { background: rgba(120,200,140,0.12); color: rgba(180,240,200,0.95); }
+      .ryu-account-change-tag.improved { background: rgba(120,160,220,0.12); color: rgba(180,210,255,0.95); }
+      .ryu-account-change-tag.fixed { background: rgba(220,170,90,0.12); color: rgba(255,220,170,0.95); }
+      @media (max-width: 640px) {
+        .ryu-account-popup,
+        .ryu-account-changelog {
+          width: min(100vw - 20px, 520px);
+        }
+        .ryu-account-popup-head { padding: 22px 18px 18px; }
+        .ryu-account-popup-title { font-size: 24px; }
+        .ryu-account-popup-body,
+        .ryu-account-popup-actions,
+        .ryu-account-changelog-inner { padding-left: 18px; padding-right: 18px; }
+        .ryu-account-release { grid-template-columns: 1fr; gap: 14px; }
+        .ryu-account-changelog-title { font-size: 28px; }
+      }
 
       /* Ã¢â€â‚¬Ã¢â€â‚¬ TEAM BOX Ã¢â‚¬â€ below the main menu panel Ã¢â€â‚¬Ã¢â€â‚¬ */
       /* Ã¢â€â‚¬Ã¢â€â‚¬ TEAM BOX Ã¢â‚¬â€ Design 3: Operator Roster Ã¢â€â‚¬Ã¢â€â‚¬ */
@@ -1795,11 +2182,6 @@
         padding: 12px 12px 8px;
         gap: 6px;
       }
-      #ryu-menu-ui.ryu-menu-compact .ryu-acct-owned,
-      #ryu-menu-ui.ryu-menu-tight .ryu-acct-owned {
-        margin: 0 12px 10px;
-        padding: 10px 10px 8px;
-      }
       #ryu-menu-ui.ryu-menu-compact .ryu-acct-name {
         font-size: 15px;
       }
@@ -1811,15 +2193,6 @@
       }
       #ryu-menu-ui.ryu-menu-tight .ryu-acct-stat-val {
         font-size: 13px;
-      }
-      #ryu-menu-ui.ryu-menu-tight .ryu-acct-badge-chip {
-        flex-basis: 100%;
-      }
-      #ryu-menu-ui.ryu-menu-tight .ryu-acct-badge-name {
-        font-size: 9px;
-      }
-      #ryu-menu-ui.ryu-menu-tight .ryu-acct-badge-state {
-        letter-spacing: 1.4px;
       }
       #ryu-team-box.ryu-team-compact .ryu-team-card-slot,
       #ryu-team-box.ryu-team-tight .ryu-team-card-slot {
@@ -1881,6 +2254,16 @@
       }
     `;
     (document.head || document.documentElement).appendChild(s);
+  }
+
+  function getRyuExtensionVersionLabel() {
+    try {
+      var raw = String(document.documentElement.getAttribute('data-ryu-ext-version') || '').trim();
+      if (!raw) return 'v1.4.4';
+      return /^v/i.test(raw) ? raw : ('v' + raw);
+    } catch (_) {
+      return 'v1.4.4';
+    }
   }
 
   function buildMenuUI() {
@@ -1955,6 +2338,14 @@
 
 
 
+      // ONLINE column
+      '<div class="ryu-menu-box" id="ryu-menu-online" style="display:flex;flex-direction:column;">',
+        '<div class="ryu-menu-label">Users Online</div>',
+        '<div class="ryu-online-list" id="ryu-online-list">',
+          '<div class="ryu-online-empty">No players online</div>',
+        '</div>',
+      '</div>',
+
       // LEFT column
       '<div class="ryu-menu-box" id="ryu-menu-left" style="display:flex;flex-direction:column;">',
         '<div class="ryu-menu-label">Select Region</div>',
@@ -2015,50 +2406,52 @@
       '</div>',
 
       // RIGHT column Ã¢â‚¬â€ Command HQ account panel
-      '<div class="ryu-menu-box" id="ryu-menu-right" style="display:flex;flex-direction:column;">',
+      '<div class="ryu-menu-box" id="ryu-menu-native" style="display:flex;flex-direction:column;">',
         '<div class="ryu-menu-label">Account</div>',
+        '<div id="ryu-menu-native-account">',
+          '<div class="ryu-acct-hero">',
+            '<div class="ryu-acct-avatar" id="ryu-menu-native-avatar"><div class="ryu-acct-avatar-fallback" id="ryu-menu-native-avatar-fallback">' + avatarChar + '</div></div>',
+            '<div class="ryu-acct-id">',
+              '<div class="ryu-acct-name" id="ryu-menu-native-name">' + username + '</div>',
+              '<div class="ryu-acct-tag" id="ryu-menu-native-tag">' + (isGuest ? 'Guest Account' : 'Player') + '</div>',
+            '</div>',
+          '</div>',
+          '<div class="ryu-acct-stats">',
+            '<div class="ryu-acct-stat"><div class="ryu-acct-stat-label">Level</div><div class="ryu-acct-stat-val" id="ryu-menu-native-level">' + level + '</div></div>',
+            '<div class="ryu-acct-stat"><div class="ryu-acct-stat-label">Rank</div><div class="ryu-acct-stat-val" id="ryu-menu-native-rank">' + rank + '</div></div>',
+            '<div class="ryu-acct-stat"><div class="ryu-acct-stat-label">RC</div><div class="ryu-acct-stat-val" id="ryu-menu-native-rc">' + rc + '</div></div>',
+            '<div class="ryu-acct-stat"><div class="ryu-acct-stat-label">RP</div><div class="ryu-acct-stat-val" id="ryu-menu-native-rp">' + rp + '</div></div>',
+          '</div>',
+          '<div class="ryu-acct-actions">',
+            (isGuest ? '<a class="ryu-acct-btn primary" id="ryu-menu-native-login" href="' + loginHref + '">LOGIN</a>' : ''),
+            '<button class="ryu-acct-btn secondary" id="ryu-menu-native-inventory">INVENTORY</button>',
+            '<button class="ryu-acct-btn secondary" id="ryu-menu-native-replays">REPLAYS</button>',
+            '<button class="ryu-acct-btn secondary" id="ryu-menu-native-convert">EDITOR</button>',
+          '</div>',
+        '</div>',
+      '</div>',
+
+      '<div class="ryu-menu-box" id="ryu-menu-right" style="display:flex;flex-direction:column;">',
+        '<div class="ryu-menu-label">Ryutheme</div>',
         '<div id="ryu-menu-right-account">',
           '<div class="ryu-acct-hero">',
             '<div class="ryu-acct-avatar" id="ryu-menu-acct-avatar">' +
-              '<img id="ryu-menu-acct-avatar-img" src="' + (acctAvatar || '') + '" alt="Avatar" style="' + (acctAvatar ? '' : 'display:none;') + '">' +
-              '<div class="ryu-acct-avatar-fallback" id="ryu-menu-acct-avatar-fallback"' + (acctAvatar ? ' style="display:none;"' : '') + '>' + avatarChar + '</div>' +
+              '<img id="ryu-menu-acct-avatar-img" src="" alt="Avatar" style="display:none;">' +
+              '<div class="ryu-acct-avatar-fallback" id="ryu-menu-acct-avatar-fallback">R</div>' +
               '<div class="ryu-acct-avatar-upload" id="ryu-menu-acct-avatar-upload">Upload Avatar</div>' +
               '<input type="file" id="ryu-menu-acct-avatar-file" accept="image/png,image/webp,image/gif,image/jpeg" style="display:none">' +
             '</div>',
             '<div class="ryu-acct-id">',
-              '<div class="ryu-acct-name" id="ryu-menu-acct-name">' + username + '</div>',
-              '<div class="ryu-acct-tag">' + (isGuest ? 'Guest Account' : 'Player') + '</div>',
-            '</div>',
-          '</div>',
-          '<div class="ryu-acct-stats">',
-            '<div class="ryu-acct-stat">',
-              '<div class="ryu-acct-stat-label">Level</div>',
-              '<div class="ryu-acct-stat-val" id="ryu-menu-acct-level">' + level + '</div>',
-            '</div>',
-            '<div class="ryu-acct-stat">',
-              '<div class="ryu-acct-stat-label">Rank</div>',
-              '<div class="ryu-acct-stat-val" id="ryu-menu-acct-rank">' + rank + '</div>',
-            '</div>',
-            '<div class="ryu-acct-stat">',
-              '<div class="ryu-acct-stat-label">RC</div>',
-              '<div class="ryu-acct-stat-val" id="ryu-menu-acct-rc">' + rc + '</div>',
-            '</div>',
-            '<div class="ryu-acct-stat">',
-              '<div class="ryu-acct-stat-label">RP</div>',
-              '<div class="ryu-acct-stat-val" id="ryu-menu-acct-rp">' + rp + '</div>',
+              '<div class="ryu-acct-name" id="ryu-menu-acct-name">RYUTHEME USER</div>',
+              '<div class="ryu-acct-tag" id="ryu-menu-acct-tag"></div>',
             '</div>',
           '</div>',
           '<div class="ryu-acct-actions">',
-            (isGuest ? '<a class="ryu-acct-btn primary" id="ryu-menu-acct-login" href="' + loginHref + '">⚡ LOGIN</a>' : ''),
-            '<button class="ryu-acct-btn primary" id="ryu-menu-google-signin">🔐 RYUTHEME SIGN IN</button>',
+            '<button class="ryu-acct-btn primary" id="ryu-menu-google-signin">RYUTHEME SIGN IN</button>',
             '<button class="ryu-acct-btn secondary" id="ryu-menu-google-signout" style="display:none;">SIGN OUT</button>',
-            '<button class="ryu-acct-btn secondary" id="ryu-menu-acct-shop">🏪 SHOP</button>',
-            '<button class="ryu-acct-btn secondary" id="ryu-menu-acct-inventory">📦 INVENTORY</button>',
-            '<button class="ryu-acct-btn secondary" id="ryu-menu-acct-replays">▶ REPLAYS</button>',
-
+            '<button class="ryu-acct-btn secondary" id="ryu-menu-acct-shop">RYUTHEME SHOP</button>',
           '</div>',
-          '<div class="ryu-acct-owned" id="ryu-menu-owned-badges"><div class="ryu-acct-owned-header"><div class="ryu-acct-owned-title">Owned Badges</div><div class="ryu-acct-owned-count" id="ryu-menu-owned-badges-count">0 OWNED</div></div><div class="ryu-acct-owned-list" id="ryu-menu-owned-badges-list"></div></div>',
-          '<div id="ryu-menu-google-auth-status" style="margin-top:10px;font-family:\'Noto Sans\',sans-serif;font-size:10px;line-height:1.5;color:rgba(255,255,255,0.58);">Sign in with Google to use Ryutheme badges and proximity voice.</div>',
+          '<div class="ryu-acct-meta-links"><a class="ryu-acct-meta-link" id="ryu-menu-changelog-link" href="#">Changelog</a></div>',
         '</div>',
         '<div class="ryu-build-info">BUILD ' + version + ' · RYUTEN.IO</div>',
       '</div>'
@@ -2066,6 +2459,34 @@
     ].join('');
 
     document.body.appendChild(panel);
+    var legacyOwned = document.getElementById('ryu-menu-owned-badges');
+    if (legacyOwned) legacyOwned.remove();
+    var legacyAuthStatus = document.getElementById('ryu-menu-google-auth-status');
+    if (legacyAuthStatus) legacyAuthStatus.remove();
+    var ryuShopBtn = document.getElementById('ryu-menu-acct-shop');
+    if (ryuShopBtn) ryuShopBtn.textContent = 'RYUTHEME SHOP';
+    var nativeActions = document.querySelector('#ryu-menu-native-account .ryu-acct-actions');
+    if (nativeActions && !document.getElementById('ryu-menu-native-shop')) {
+      var nativeShopBtn = document.createElement('button');
+      nativeShopBtn.className = 'ryu-acct-btn secondary';
+      nativeShopBtn.id = 'ryu-menu-native-shop';
+      nativeShopBtn.textContent = 'SHOP';
+      nativeActions.insertBefore(nativeShopBtn, document.getElementById('ryu-menu-native-inventory') || null);
+    }
+    var nativeLoginBtn = document.getElementById('ryu-menu-native-login');
+    if (nativeLoginBtn) nativeLoginBtn.textContent = 'LOGIN';
+    var nativeInventoryBtn = document.getElementById('ryu-menu-native-inventory');
+    if (nativeInventoryBtn) nativeInventoryBtn.textContent = 'INVENTORY';
+    var nativeReplaysBtn = document.getElementById('ryu-menu-native-replays');
+    if (nativeReplaysBtn) nativeReplaysBtn.textContent = 'REPLAYS';
+    var nativeConvertBtn = document.getElementById('ryu-menu-native-convert');
+    if (nativeConvertBtn) nativeConvertBtn.textContent = 'EDITOR';
+    var googleSigninBtn = document.getElementById('ryu-menu-google-signin');
+    if (googleSigninBtn) googleSigninBtn.textContent = 'RYUTHEME SIGN IN';
+    var nativeLabel = document.querySelector('#ryu-menu-native .ryu-menu-label');
+    if (nativeLabel) nativeLabel.textContent = 'Account';
+    var rightLabel = document.querySelector('#ryu-menu-right .ryu-menu-label');
+    if (rightLabel) rightLabel.textContent = 'Ryutheme';
     var existingTeamBox = document.getElementById('ryu-team-box');
     if (existingTeamBox && existingTeamBox.parentNode !== panel) panel.appendChild(existingTeamBox);
     if (globalThis.__ryuPositionTeamBox) globalThis.__ryuPositionTeamBox();
@@ -2161,112 +2582,209 @@
       input.addEventListener('keydown', function(e) { if (e.key === 'Enter') doConfirm(); });
       if (isChanging) modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
     }
+    globalThis.showRyuNameModal = showRyuNameModal;
+
+    function getAccountPopupSeenKey() {
+      return 'ryuSeenAccountPopup:' + getRyuExtensionVersionLabel();
+    }
+
+    function getAccountChangelogData() {
+      return [
+        {
+          version: getRyuExtensionVersionLabel(),
+          date: 'Now Live',
+          summary: 'Account system goes live.',
+          changes: [
+            { tag: 'new', label: 'New', text: 'Account system with Google sign-in.' },
+            { tag: 'new', label: 'New', text: 'Proximity chat for signed-in users.' },
+            { tag: 'new', label: 'New', text: 'Account badges next to your cell name.' }
+          ]
+        },
+        {
+          version: 'v1.4.3',
+          date: 'Earlier',
+          summary: 'Interface and relay polish.',
+          changes: [
+            { tag: 'improved', label: 'Improved', text: 'Responsive UI sizing across more desktop screen sizes.' },
+            { tag: 'improved', label: 'Improved', text: 'Chatbox and leaderboard resizing now preserve readability better.' },
+            { tag: 'fixed', label: 'Fixed', text: 'Account-linked relay features now sync more cleanly with the menu UI.' }
+          ]
+        }
+      ];
+    }
+
+    function closeAccountOverlay(markSeen) {
+      var overlay = document.getElementById('ryu-account-popup-overlay');
+      if (!overlay) return;
+      if (markSeen !== false) {
+        try { localStorage.setItem(getAccountPopupSeenKey(), '1'); } catch (_) {}
+      }
+      overlay.remove();
+    }
+
+    function renderAccountChangelog() {
+      var overlay = document.getElementById('ryu-account-popup-overlay');
+      if (!overlay) return;
+      overlay.innerHTML = '';
+      var changelog = document.createElement('div');
+      changelog.className = 'ryu-account-changelog';
+      var releases = getAccountChangelogData().map(function(entry, index) {
+        var changesHtml = entry.changes.map(function(change) {
+          return '<div class="ryu-account-change"><span class="ryu-account-change-tag ' + change.tag + '">' + change.label + '</span><span>' + change.text + '</span></div>';
+        }).join('');
+        return '<section class="ryu-account-release">' +
+          '<div><div class="ryu-account-release-version">' + entry.version + '</div><div class="ryu-account-release-date">' + entry.date + (index === 0 ? ' · Latest' : '') + '</div></div>' +
+          '<div><h2 class="ryu-account-release-summary">' + entry.summary + '</h2>' + changesHtml + '</div>' +
+        '</section>';
+      }).join('');
+      changelog.innerHTML = '<div class="ryu-account-changelog-inner">' +
+        '<div class="ryu-account-changelog-top">' +
+          '<div class="ryu-account-changelog-title">Changelog</div>' +
+          '<button class="ryu-account-changelog-close" type="button">Back</button>' +
+        '</div>' +
+        releases +
+      '</div>';
+      overlay.appendChild(changelog);
+      changelog.querySelector('.ryu-account-changelog-close').addEventListener('click', function() {
+        showAccountSystemPopup(true);
+      });
+      overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) closeAccountOverlay(true);
+      }, { once: true });
+    }
+
+    function showAccountSystemPopup(force) {
+      var versionLabel = getRyuExtensionVersionLabel();
+      var state = globalThis.__ryuGetAuthState ? globalThis.__ryuGetAuthState() : (globalThis.__ryuAuthState || {});
+      if (!force) {
+        try {
+          if (localStorage.getItem(getAccountPopupSeenKey()) === '1') return;
+        } catch (_) {}
+      }
+
+      closeAccountOverlay(false);
+      var overlay = document.createElement('div');
+      overlay.id = 'ryu-account-popup-overlay';
+      var primaryLabel = state && state.signedIn ? 'Continue' : 'Sign in with Google';
+      overlay.innerHTML =
+        '<div class="ryu-account-popup" role="dialog" aria-labelledby="ryu-account-popup-title">' +
+          '<button class="ryu-account-popup-close" type="button" aria-label="Close">×</button>' +
+          '<div class="ryu-account-popup-head">' +
+            '<div class="ryu-account-popup-tag">New · ' + versionLabel + '</div>' +
+            '<h2 class="ryu-account-popup-title" id="ryu-account-popup-title">Account System<br>now live!</h2>' +
+            '<p class="ryu-account-popup-subtitle">Sign in with your Ryutheme account to unlock and sync account-based features.</p>' +
+          '</div>' +
+          '<div class="ryu-account-popup-body">' +
+            '<div class="ryu-account-popup-label">Account Features</div>' +
+            '<div class="ryu-account-popup-features">' +
+              '<div class="ryu-account-popup-feature"><div class="ryu-account-popup-icon">◉</div><div><div class="ryu-account-popup-feature-name">Proximity Chat</div><div class="ryu-account-popup-feature-desc">Talk to nearby cells in real time with persistent account access.</div></div></div>' +
+              '<div class="ryu-account-popup-feature"><div class="ryu-account-popup-icon">★</div><div><div class="ryu-account-popup-feature-name">Badges</div><div class="ryu-account-popup-feature-desc">Your account now owns and syncs Ryutheme badges across sessions.</div></div></div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="ryu-account-popup-actions">' +
+            '<div class="ryu-account-popup-divider"></div>' +
+            '<button class="ryu-account-popup-btn primary" id="ryu-account-popup-primary" type="button">' + primaryLabel + '</button>' +
+            '<button class="ryu-account-popup-btn secondary" id="ryu-account-popup-later" type="button">Maybe Later</button>' +
+            '<div class="ryu-account-popup-meta"><a href="#" id="ryu-account-popup-changelog">What\'s new in ' + versionLabel.replace(/^v/i, '') + '</a></div>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+
+      overlay.querySelector('.ryu-account-popup-close').addEventListener('click', function() { closeAccountOverlay(true); });
+      overlay.querySelector('#ryu-account-popup-later').addEventListener('click', function() { closeAccountOverlay(true); });
+      overlay.querySelector('#ryu-account-popup-changelog').addEventListener('click', function(e) {
+        e.preventDefault();
+        renderAccountChangelog();
+      });
+      overlay.querySelector('#ryu-account-popup-primary').addEventListener('click', function() {
+        if (state && state.signedIn) {
+          closeAccountOverlay(true);
+          return;
+        }
+        if (!globalThis.__ryuSignInWithGoogle) return;
+        var btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Connecting...';
+        Promise.resolve(globalThis.__ryuSignInWithGoogle()).then(function(nextState) {
+          closeAccountOverlay(true);
+          syncRyuGoogleAuthUi();
+          if (nextState && nextState.signedIn && !nextState.displayName) showRyuNameModal(false);
+        }).catch(function(err) {
+          btn.disabled = false;
+          btn.textContent = primaryLabel;
+          if (globalThis.__ryuShowToast) globalThis.__ryuShowToast((err && err.message) || 'Google sign-in failed.', 'error');
+        });
+      });
+      overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) closeAccountOverlay(true);
+      });
+    }
 
     function syncRyuGoogleAuthUi() {
       var state = globalThis.__ryuGetAuthState ? globalThis.__ryuGetAuthState() : (globalThis.__ryuAuthState || {});
-      var signinBtn    = document.getElementById('ryu-menu-google-signin');
-      var signoutBtn   = document.getElementById('ryu-menu-google-signout');
-      var statusEl     = document.getElementById('ryu-menu-google-auth-status');
-      var nameEl       = document.getElementById('ryu-menu-acct-name');
-      var tagEl        = document.querySelector('#ryu-menu-right .ryu-acct-tag');
-      var avatarImg    = document.getElementById('ryu-menu-acct-avatar-img');
+      var signinBtn = document.getElementById('ryu-menu-google-signin');
+      var signoutBtn = document.getElementById('ryu-menu-google-signout');
+      var nameEl = document.getElementById('ryu-menu-acct-name');
+      var tagEl = document.getElementById('ryu-menu-acct-tag');
+      var avatarImg = document.getElementById('ryu-menu-acct-avatar-img');
       var avatarFallback = document.getElementById('ryu-menu-acct-avatar-fallback');
-      if (!signinBtn || !signoutBtn || !statusEl) return;
+      if (!signinBtn || !signoutBtn) return;
 
-      var hasCustomAvatar = !!(loadTheme && loadTheme().accountAvatar);
+      var ryuName = (state && (state.displayName || state.name)) || username || 'Player';
 
       if (state && state.signedIn) {
-        // buttons
-        signinBtn.textContent = '✅ CONNECTED';
+        signinBtn.textContent = 'CONNECTED';
         signinBtn.disabled = true;
         signinBtn.style.opacity = '0.7';
         signinBtn.style.cursor = 'default';
         signoutBtn.style.display = '';
 
-        // account name — prefer displayName, fall back to Google name, then game username
-        var ryuName = state.displayName || state.name || username;
-        if (nameEl) nameEl.textContent = ryuName;
+        if (nameEl) nameEl.textContent = 'Welcome ' + ryuName + '!';
+        if (tagEl) {
+          tagEl.innerHTML = '<button type="button" class="ryu-acct-subaction" id="ryu-menu-acct-change-name">Change name</button>';
+          var changeNameBtn = document.getElementById('ryu-menu-acct-change-name');
+          if (changeNameBtn) {
+            changeNameBtn.addEventListener('click', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              showRyuNameModal(true);
+            });
+          }
+        }
 
-        // account tag
-        if (tagEl) tagEl.textContent = state.email ? state.email : 'Ryutheme Account';
-
-        // avatar — use Google picture if no custom avatar is uploaded
-        if (!hasCustomAvatar && state.picture && avatarImg) {
+        if (avatarImg && state.picture) {
           avatarImg.src = state.picture;
           avatarImg.style.display = '';
           if (avatarFallback) avatarFallback.style.display = 'none';
-        } else if (avatarFallback) {
-          avatarFallback.textContent = ryuName.charAt(0).toUpperCase();
+        } else {
+          if (avatarImg) {
+            avatarImg.src = '';
+            avatarImg.style.display = 'none';
+          }
+          if (avatarFallback) {
+            avatarFallback.style.display = '';
+            avatarFallback.textContent = 'R';
+          }
         }
-
-        // status text with set/change name link
-        while (statusEl.firstChild) statusEl.removeChild(statusEl.firstChild);
-        var linkedText = state.displayName
-          ? 'Signed in as ' + state.displayName + ' (' + (state.email || 'Google') + '). '
-          : 'Ryutheme account linked to ' + (state.email || 'Google') + '. ';
-        statusEl.appendChild(document.createTextNode(linkedText));
-        var nameLink = document.createElement('a');
-        nameLink.href = '#';
-        nameLink.textContent = state.displayName ? 'Change name' : 'Set account name';
-        nameLink.style.cssText = 'color:rgba(180,150,255,0.85);text-decoration:underline;cursor:pointer;';
-        nameLink.addEventListener('click', function(e) { e.preventDefault(); showRyuNameModal(true); });
-        statusEl.appendChild(nameLink);
       } else {
-        // buttons
-        signinBtn.textContent = '🔐 RYUTHEME SIGN IN';
+        signinBtn.textContent = 'RYUTHEME SIGN IN';
         signinBtn.disabled = false;
         signinBtn.style.opacity = '';
         signinBtn.style.cursor = '';
         signoutBtn.style.display = 'none';
 
-        // restore native game values
-        if (nameEl) nameEl.textContent = username;
-        if (tagEl) tagEl.textContent = isGuest ? 'Guest Account' : 'Player';
+        if (nameEl) nameEl.textContent = 'RYUTHEME USER';
+        if (tagEl) tagEl.textContent = '';
 
-        // restore avatar to custom or letter fallback
-        if (!hasCustomAvatar && avatarImg) {
+        if (avatarImg) {
           avatarImg.src = '';
           avatarImg.style.display = 'none';
-          if (avatarFallback) {
-            avatarFallback.style.display = '';
-            avatarFallback.textContent = avatarChar;
-          }
         }
-
-        statusEl.textContent = 'Sign in with Google to use Ryutheme badges and proximity voice.';
+        if (avatarFallback) {
+          avatarFallback.style.display = '';
+          avatarFallback.textContent = 'R';
+        }
       }
-    }
-
-    function syncOwnedBadgesUi() {
-      var listEl = document.getElementById('ryu-menu-owned-badges-list');
-      var countEl = document.getElementById('ryu-menu-owned-badges-count');
-      var state = globalThis.__ryuGetAuthState ? globalThis.__ryuGetAuthState() : (globalThis.__ryuAuthState || {});
-      if (!listEl || !countEl) return;
-
-      var activeBadgeId = String(globalThis.__ryuCustomActiveTitle || localStorage.getItem('ryuActiveCustomBadge') || '').trim();
-      var ownedCount = 0;
-
-      if (!(state && state.signedIn)) {
-        countEl.textContent = '0 OWNED';
-        listEl.innerHTML = '<div class="ryu-acct-owned-empty">Sign in with your Google-linked Ryutheme account to sync badge ownership here.</div>';
-        return;
-      }
-
-      var ownedMarkup = RYU_CUSTOM_BADGE_TITLES.map(function(item) {
-        var isOwned = !!(globalThis.__ryuHasBadgeEntitlement && globalThis.__ryuHasBadgeEntitlement(item.id));
-        if (!isOwned) return '';
-        var isActive = activeBadgeId === item.id;
-        if (isOwned) ownedCount++;
-        return '<div class="ryu-acct-badge-chip owned' + (isActive ? ' active' : '') + '">' +
-          '<img class="ryu-acct-badge-icon" src="' + ryuCustomBadgeAssetUrl(item.file) + '" alt="' + item.name + '">' +
-          '<div class="ryu-acct-badge-meta">' +
-            '<div class="ryu-acct-badge-name">' + item.name + '</div>' +
-            '<div class="ryu-acct-badge-state">' + (isActive ? 'Equipped' : 'Owned') + '</div>' +
-          '</div>' +
-        '</div>';
-      }).filter(Boolean).join('');
-      countEl.textContent = ownedCount + ' OWNED';
-      listEl.innerHTML = ownedMarkup || '<div class="ryu-acct-owned-empty">No account-owned badges are linked to this Ryutheme account yet.</div>';
     }
 
     var ryuGoogleSignInBtn = document.getElementById('ryu-menu-google-signin');
@@ -2283,7 +2801,6 @@
           if (globalThis.__ryuShowToast) globalThis.__ryuShowToast((err && err.message) || 'Google sign-in failed.', 'error');
         }).finally(function() {
           syncRyuGoogleAuthUi();
-          syncOwnedBadgesUi();
         });
       });
     }
@@ -2296,13 +2813,20 @@
           if (globalThis.__ryuShowToast) globalThis.__ryuShowToast((err && err.message) || 'Sign-out failed.', 'error');
         }).finally(function() {
           syncRyuGoogleAuthUi();
-          syncOwnedBadgesUi();
         });
       });
     }
 
+        var changelogLink = document.getElementById('ryu-menu-changelog-link');
+    if (changelogLink) {
+      changelogLink.addEventListener('click', function(e) {
+        e.preventDefault();
+        showAccountSystemPopup(true);
+        renderAccountChangelog();
+      });
+    }
+
     syncRyuGoogleAuthUi();
-    syncOwnedBadgesUi();
     panel._ryuSyncGoogleAuthUi = syncRyuGoogleAuthUi;
     window.addEventListener('message', function(event) {
       if (event.source !== window) return;
@@ -2310,10 +2834,11 @@
       if (!data || data.source !== 'ryu-extension-bridge') return;
       if (data.type === 'ryu-auth-state' || data.type === 'ryu-auth-response') {
         syncRyuGoogleAuthUi();
-        syncOwnedBadgesUi();
       }
     });
-    window.addEventListener('ryu-badge-entitlements-changed', syncOwnedBadgesUi);
+    setTimeout(function() {
+      if (document.getElementById(MENU_UI_ID)) showAccountSystemPopup(false);
+    }, 500);
 
     // load skin images from game state
     function loadSkinImages() {
@@ -2385,6 +2910,127 @@
         })(60);
       });
     }
+
+    // Users Online panel
+    (function setupOnlinePanel() {
+      var onlineList = document.getElementById('ryu-online-list');
+      if (!onlineList) return;
+
+      function getRegionFromUrl(url) {
+        var m = url && url.match(/wss?:\/\/([a-z]+)\.ryuten\.io/);
+        return m ? m[1].toUpperCase() : '';
+      }
+      function getServerFromUrl(url) {
+        var m = url && url.match(/server-(\d+)/);
+        return m ? 'Server ' + m[1] : '';
+      }
+
+      function updateRyuModeHighlight(modeName) {
+        if (!modeName) return;
+        panel.querySelectorAll('.ryu-mode-item').forEach(function(item) {
+          item.classList.toggle('ryu-mode-active', item.getAttribute('data-mode') === modeName);
+        });
+      }
+
+      function selectNativeMode(modeName, attempts) {
+        attempts = attempts || 0;
+        if (!modeName) return;
+        var matched = false;
+        document.querySelectorAll('.mame-ssb-ms-item').forEach(function(ni) {
+          if (matched) return;
+          var nameEl = ni.querySelector('.mame-ssb-ms-item-mode-name');
+          if (nameEl && nameEl.textContent.trim() === modeName) {
+            matched = true;
+            ni.click();
+          }
+        });
+        if (matched) {
+          updateRyuModeHighlight(modeName);
+          return;
+        }
+        if (attempts >= 10) return;
+        setTimeout(function() { selectNativeMode(modeName, attempts + 1); }, 120);
+      }
+
+      function refreshOnlineList() {
+        var presence = globalThis.__ryuPresenceInfo;
+        var ownId = globalThis.__ryuClientId;
+        if (!presence) return;
+        var entries = [];
+        Object.keys(presence).forEach(function(cid) {
+          var info = presence[cid];
+          if (!info.accountId) return;
+          if (cid === ownId) return;
+          entries.push({ clientId: cid, user: info.user || 'Player', serverUrl: info.serverUrl || '', gameName: info.gameName || '', modeName: info.modeName || '' });
+        });
+        if (entries.length === 0) {
+          onlineList.innerHTML = '<div class="ryu-online-empty">No players online</div>';
+          return;
+        }
+        var html = '<div class="ryu-online-count">' + entries.length + ' online</div>';
+        entries.forEach(function(e) {
+          var region = getRegionFromUrl(e.serverUrl);
+          var srv = getServerFromUrl(e.serverUrl);
+          var serverLabel = region && srv ? region + ' · ' + srv : (region || 'Lobby');
+          var canJoin = !!e.serverUrl;
+          var safeUser = e.user.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          var safeGameName = (e.gameName || '').replace(/"/g, '&quot;');
+          var safeModeName = (e.modeName || '').replace(/"/g, '&quot;');
+          html += '<div class="ryu-online-row" data-cid="' + e.clientId + '" data-url="' + (e.serverUrl || '') + '" data-region="' + region + '" data-gamename="' + safeGameName + '" data-modename="' + safeModeName + '">';
+          html += '<div class="ryu-online-dot"></div>';
+          html += '<div class="ryu-online-info"><div class="ryu-online-name">' + safeUser + '</div><div class="ryu-online-server">' + serverLabel + '</div></div>';
+          if (canJoin) html += '<button class="ryu-online-join-btn">JOIN</button>';
+          html += '</div>';
+        });
+        onlineList.innerHTML = html;
+
+        onlineList.querySelectorAll('.ryu-online-join-btn').forEach(function(btn) {
+          btn.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            var row = btn.closest('.ryu-online-row');
+            var serverUrl = row && row.getAttribute('data-url');
+            var region = row && row.getAttribute('data-region');
+            var gameName = row && row.getAttribute('data-gamename');
+            var modeName = row && row.getAttribute('data-modename');
+            if (serverUrl) {
+              window._ryuNextServerUrl = serverUrl;
+            }
+            if (region) {
+              document.querySelectorAll('.mame-ssb-region-option').forEach(function(opt) {
+                if (opt.textContent.trim().toUpperCase() === region) opt.click();
+              });
+              panel.querySelectorAll('.ryu-region-btn').forEach(function(b) {
+                b.classList.toggle('ryu-region-active', b.getAttribute('data-region') === region);
+              });
+            }
+            if (modeName) {
+              selectNativeMode(modeName, 0);
+            }
+            // Queue auto-spectate before entering the server
+            if (gameName && globalThis.__ryuStartAutoSpec) {
+              globalThis.__ryuStartAutoSpec(gameName);
+            }
+            // Enter spectate so we can find the friend and spawn next to them
+            var nativeSpec2 = document.getElementById('mame-spectate-btn');
+            if (nativeSpec2) {
+              nativeSpec2.click();
+            } else {
+              var nativePlay2 = document.getElementById('mame-play-btn');
+              if (nativePlay2) nativePlay2.click();
+            }
+          });
+        });
+      }
+
+      refreshOnlineList();
+      if (_menuOnlineTimer) clearInterval(_menuOnlineTimer);
+      _menuOnlineTimer = setInterval(function() {
+        if (!panel.isConnected) return;
+        refreshOnlineList();
+      }, 2500);
+
+      globalThis.__ryuRefreshOnlinePanel = refreshOnlineList;
+    })();
 
     // region buttons
     panel.querySelectorAll('.ryu-region-btn').forEach(function (btn) {
@@ -2502,6 +3148,10 @@
       var sibText = sibInfo ? sibInfo.textContent.trim() : '';
       var activeModeEl = document.getElementById('mame-ssb-mode-selected');
       var activeNow = activeModeEl ? activeModeEl.textContent.trim().toUpperCase() : '';
+      panel.querySelectorAll('.ryu-mode-item').forEach(function(item) {
+        var modeName = String(item.getAttribute('data-mode') || '').trim().toUpperCase();
+        item.classList.toggle('ryu-mode-active', !!activeNow && modeName === activeNow);
+      });
       modeEls.forEach(function (item) {
         var nameEl  = item.querySelector('.mame-ssb-ms-item-mode-name');
         var countEl = item.querySelector('.mame-ssb-ms-item-player-count div');
@@ -2544,17 +3194,18 @@
         if (src && dest && dest.textContent !== src.textContent.trim())
           dest.textContent = src.textContent.trim();
       }
-      syncMenuAcct('#mame-trb-user-data-username', 'ryu-menu-acct-name');
-      syncMenuAcct('#mame-trb-user-data-level',    'ryu-menu-acct-level');
-      syncMenuAcct('#mame-trb-user-data-rc',       'ryu-menu-acct-rc');
-      syncMenuAcct('#mame-trb-user-data-rp',       'ryu-menu-acct-rp');
-      syncMenuAcct('#mame-trb-user-data-rank',     'ryu-menu-acct-rank');
-      var nm = document.getElementById('ryu-menu-acct-name');
-      if (nm) renderMenuAccountAvatar(nm.textContent);
+      syncMenuAcct('#mame-trb-user-data-username', 'ryu-menu-native-name');
+      syncMenuAcct('#mame-trb-user-data-level',    'ryu-menu-native-level');
+      syncMenuAcct('#mame-trb-user-data-rc',       'ryu-menu-native-rc');
+      syncMenuAcct('#mame-trb-user-data-rp',       'ryu-menu-native-rp');
+      syncMenuAcct('#mame-trb-user-data-rank',     'ryu-menu-native-rank');
+      var nm = document.getElementById('ryu-menu-native-name');
+      var nativeFallback = document.getElementById('ryu-menu-native-avatar-fallback');
+      if (nm && nativeFallback) nativeFallback.textContent = nm.textContent.trim().charAt(0).toUpperCase() || 'G';
       // login state sync Ã¢â‚¬â€ update tag + remove login btn when user logs in mid-session
       var loginStillPresent = !!nTRB.querySelector('#login-button');
-      var tagEl  = document.querySelector('#ryu-menu-right .ryu-acct-tag');
-      var loginBtnEl = document.getElementById('ryu-menu-acct-login');
+      var tagEl  = document.getElementById('ryu-menu-native-tag');
+      var loginBtnEl = document.getElementById('ryu-menu-native-login');
       if (tagEl) {
         var expectedTag = loginStillPresent ? 'Guest Account' : 'Player';
         if (tagEl.textContent !== expectedTag) tagEl.textContent = expectedTag;
@@ -2609,7 +3260,7 @@
             canvas.height = size;
             var ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, size, size);
-            var scale = Math.min(size / img.width, size / img.height);
+            var scale = Math.max(size / img.width, size / img.height);
             var drawW = Math.max(1, Math.round(img.width * scale));
             var drawH = Math.max(1, Math.round(img.height * scale));
             var dx = Math.round((size - drawW) / 2);
@@ -2636,31 +3287,39 @@
       var nb = document.getElementById(nativeId);
       if (ob && nb) ob.addEventListener('click', function () { nb.click(); });
     }
+    function openRedesignedShop(shopMode) {
+      var menuPanel = document.getElementById('ryu-menu-ui');
+      var menuBackdrop = document.getElementById('ryu-menu-backdrop');
+      if (menuPanel) menuPanel.style.setProperty('display', 'none', 'important');
+      if (menuBackdrop) menuBackdrop.style.setProperty('display', 'none', 'important');
+      var shopEl = document.getElementById('shop-menu');
+      if (shopEl) {
+        ['layer__title','shop-wallet','shop-container','layer__bottom-btns'].forEach(function(cls) {
+          var el = shopEl.querySelector('.' + cls);
+          if (el) el.style.setProperty('display', 'none', 'important');
+        });
+      }
+      globalThis.__ryuShopMode = shopMode === 'ryutheme' ? 'ryutheme' : 'native';
+      injectShopRedesign();
+      var nativeShopBtn = document.getElementById('mame-trb-shop-btn');
+      if (nativeShopBtn) nativeShopBtn.click();
+    }
+
     var shopBtnEl = document.getElementById('ryu-menu-acct-shop');
     if (shopBtnEl) {
       shopBtnEl.addEventListener('click', function () {
-        if (!ryuIsLoggedIn()) { ryuShowLoginPopup(); return; }
-        // Hide our menu panel immediately before anything else
-        var menuPanel = document.getElementById('ryu-menu-ui');
-        var menuBackdrop = document.getElementById('ryu-menu-backdrop');
-        if (menuPanel) menuPanel.style.setProperty('display', 'none', 'important');
-        if (menuBackdrop) menuBackdrop.style.setProperty('display', 'none', 'important');
-        // Immediately hide native shop children before game shows them
-        var shopEl = document.getElementById('shop-menu');
-        if (shopEl) {
-          ['layer__title','shop-wallet','shop-container','layer__bottom-btns'].forEach(function(cls) {
-            var el = shopEl.querySelector('.' + cls);
-            if (el) el.style.setProperty('display', 'none', 'important');
-          });
-        }
-        // Inject our UI first, then click native button
-        injectShopRedesign();
-        var nativeShopBtn = document.getElementById('mame-trb-shop-btn');
-        if (nativeShopBtn) nativeShopBtn.click();
+        openRedesignedShop('ryutheme');
       });
     }
-    wireAcctBtn('ryu-menu-acct-inventory', 'mame-trb-inventory-btn');
-    var replaysBtnEl = document.getElementById('ryu-menu-acct-replays');
+    var nativeShopBtnEl = document.getElementById('ryu-menu-native-shop');
+    if (nativeShopBtnEl) {
+      nativeShopBtnEl.addEventListener('click', function () {
+        if (!ryuIsLoggedIn()) { ryuShowLoginPopup(); return; }
+        openRedesignedShop('native');
+      });
+    }
+    wireAcctBtn('ryu-menu-native-inventory', 'mame-trb-inventory-btn');
+    var replaysBtnEl = document.getElementById('ryu-menu-native-replays');
     if (replaysBtnEl) {
       replaysBtnEl.addEventListener('click', function () {
         var menuPanel = document.getElementById('ryu-menu-ui');
@@ -2689,7 +3348,15 @@
         }, 100);
       });
     }
-    var inventoryBtnEl = document.getElementById('ryu-menu-acct-inventory');
+    var convertBtnEl = document.getElementById('ryu-menu-native-convert');
+    if (convertBtnEl) {
+      convertBtnEl.addEventListener('click', function () {
+        if (globalThis.__ryuReplayConverter && typeof globalThis.__ryuReplayConverter.open === 'function') {
+          globalThis.__ryuReplayConverter.open();
+        }
+      });
+    }
+    var inventoryBtnEl = document.getElementById('ryu-menu-native-inventory');
     if (inventoryBtnEl) {
       inventoryBtnEl.addEventListener('click', function () {
         if (!ryuIsLoggedIn()) { ryuShowLoginPopup(); return; }
@@ -4521,6 +5188,7 @@
   var SHOP_STYLE_ID    = 'ryu-shop-style';
   var SHOP_INJECTED_ID = 'ryu-shop-injected';
   var _shopMenuOpen    = false;
+  var _shopMode        = 'native';
 
   function injectShopStyle() {
     if (document.getElementById(SHOP_STYLE_ID)) return;
@@ -4569,6 +5237,7 @@
         flex-shrink: 0;
         opacity: 1;
         pointer-events: all;
+        z-index: 99998;
         visibility: visible !important;
         transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
       }
@@ -4838,6 +5507,7 @@
     if (document.getElementById(SHOP_INJECTED_ID)) return;
 
     injectShopStyle();
+    _shopMode = globalThis.__ryuShopMode === 'ryutheme' ? 'ryutheme' : 'native';
 
     var shopEl = document.getElementById('shop-menu');
     if (!shopEl) return;
@@ -4995,7 +5665,7 @@
       return items;
     }
 
-    var _shopActiveTab = 'SHIELD';
+    var _shopActiveTab = _shopMode === 'ryutheme' ? 'RYUTHEME' : 'SHIELD';
 
     var wrapper = document.createElement('div');
     wrapper.id = SHOP_INJECTED_ID;
@@ -5023,12 +5693,14 @@
             return it.nativeEl.style.display !== 'none';
           });
 
+      var shopTabs = _shopMode === 'ryutheme' ? ['RYUTHEME'] : ['SHIELD','TITLE','MISC'];
+
       wrapper.innerHTML =
         '<div id="ryu-shop-header">' +
           '<div id="ryu-shop-header-left">' +
             '<div id="ryu-shop-title">SHOP</div>' +
             '<div id="ryu-shop-tabs">' +
-              ['SHIELD','TITLE','MISC','RYUTHEME'].map(function(cat) {
+              shopTabs.map(function(cat) {
                 return '<button class="ryu-shop-tab' + (cat === _shopActiveTab ? ' ryu-shop-tab-active' : '') + '" data-cat="' + cat + '">' + cat + '</button>';
               }).join('') +
             '</div>' +
@@ -5077,6 +5749,19 @@
       document.body.appendChild(wrapper);
       // Make visible immediately
       wrapper.classList.add('ryu-shop-visible');
+      if (_shopMode === 'ryutheme' && !ryuHasRyuthemeAccount()) {
+        var shopLock = createRyuthemeFeatureOverlay(
+          'Sign in with your Ryutheme account to unlock Ryutheme cosmetics and account-based items.',
+          function() {
+            var live = document.getElementById(SHOP_INJECTED_ID);
+            if (live) {
+              live.remove();
+              buildShopUI();
+            }
+          }
+        );
+        wrapper.appendChild(shopLock);
+      }
       wireShopUI();
     }
 
@@ -5182,11 +5867,13 @@
       // ESC key Ã¢â‚¬â€ fire our close immediately for instant animation, don't block game
       function onShopEsc(e) {
         if (e.key === 'Escape') {
-          document.removeEventListener('keydown', onShopEsc, true);
-          closeShopWrapper(false);
+          window.removeEventListener('keydown', onShopEsc, true);
+          e.preventDefault();
+          e.stopPropagation();
+          closeShopWrapper(true);
         }
       }
-      document.addEventListener('keydown', onShopEsc, true);
+      window.addEventListener('keydown', onShopEsc, true);
     }
 
     // Watch for native menu close
@@ -5409,13 +6096,15 @@
     (document.head || document.documentElement).appendChild(s);
   }
 
-  function closeInventoryWrapper() {
+  function closeInventoryWrapper(triggerNative) {
     var ow = document.getElementById(INV_INJECTED_ID);
     if (!ow) return;
     ow.classList.remove('ryu-inv-visible');
     ow.classList.add('ryu-inv-closing');
-    var nativeBack = document.getElementById('inventory-back');
-    if (nativeBack) nativeBack.click();
+    if (triggerNative) {
+      var nativeBack = document.getElementById('inventory-back');
+      if (nativeBack) nativeBack.click();
+    }
     setTimeout(function() {
       var el = document.getElementById(INV_INJECTED_ID);
       if (el) el.remove();
@@ -5541,7 +6230,7 @@
       var backBtn = document.getElementById('ryu-inv-back-btn');
       if (backBtn) {
         backBtn.addEventListener('click', function() {
-          closeInventoryWrapper();
+          closeInventoryWrapper(true);
         });
       }
 
@@ -5550,11 +6239,11 @@
         if (e.key === 'Escape') {
           e.preventDefault();
           e.stopPropagation();
-          document.removeEventListener('keydown', onInvEsc, true);
-          closeInventoryWrapper();
+          window.removeEventListener('keydown', onInvEsc, true);
+          closeInventoryWrapper(true);
         }
       }
-      document.addEventListener('keydown', onInvEsc, true);
+      window.addEventListener('keydown', onInvEsc, true);
     }
 
     // hide native rename box via CSS Ã¢â‚¬â€ we use our own modal
@@ -6916,6 +7605,7 @@
   }
 
   function renderRyuThemeSection(content, sec) {
+    content.style.position = 'relative';
     function loadT() { try { return JSON.parse(localStorage.getItem('ryuTheme')) || {}; } catch(e) { return {}; } }
     function getExtOrigin() {
       try { return document.documentElement.getAttribute('data-ryu-ext-origin') || ''; } catch(e) { return ''; }
@@ -7044,10 +7734,9 @@
         key === 'proximityVoiceOn' ||
         key === 'proximityVoiceMicMuted' ||
         key === 'proximityVoiceVolume' ||
-        key === 'proximityVoiceNearRadius' ||
-        key === 'proximityVoiceFarRadius' ||
         key === 'proximityVoiceInputDeviceId' ||
-        key === 'proximityVoiceOutputDeviceId'
+        key === 'proximityVoiceOutputDeviceId' ||
+        key === 'proximityVoiceChipmunk'
       ) {
         if (globalThis.__ryuVoiceRefreshSettings) globalThis.__ryuVoiceRefreshSettings();
       }
@@ -7468,8 +8157,8 @@
         { label: 'Input Device',        type: 'deviceSelect', key: 'proximityVoiceInputDeviceId', deviceKind: 'input', def: 'default' },
         { label: 'Output Device',       type: 'deviceSelect', key: 'proximityVoiceOutputDeviceId', deviceKind: 'output', def: 'default' },
         { label: 'Voice Volume',        type: 'slider', key: 'proximityVoiceVolume', def: 100, min: 0, max: 100 },
-        { label: 'Full Volume Range',    type: 'slider', key: 'proximityVoiceNearRadius', def: 1400, min: 400, max: 4000 },
-        { label: 'Max Hear Range',      type: 'slider', key: 'proximityVoiceFarRadius', def: 5200, min: 1200, max: 9000 }
+        { label: 'VOICE EFFECTS',       type: 'group' },
+        { label: 'Chipmunk Mode',       type: 'toggle', key: 'proximityVoiceChipmunk', def: false }
       ]
     };
 
@@ -9763,6 +10452,16 @@
       row.appendChild(ctrl);
       content.appendChild(row);
     });
+
+    if (sec === 'PROXIMITY CHAT' && !ryuHasRyuthemeAccount()) {
+      var voiceLock = createRyuthemeFeatureOverlay(
+        'Sign in with your Ryutheme account to use proximity chat and voice device controls.',
+        function() {
+          if (document.getElementById(RYU_SP_ID)) renderSpRows(document.getElementById(RYU_SP_ID));
+        }
+      );
+      content.appendChild(voiceLock);
+    }
 
     if (_spPendingHighlight) {
       var targetLabel = _spPendingHighlight.toLowerCase();
