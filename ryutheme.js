@@ -161,7 +161,6 @@
   let _ft_hotkeyTargetedFeed = '';
   let _ft_hotkeyFavoriteEmote = '';
   let _ft_favoriteEmoteCode = '';
-  let _ft_countryFlagCode = '';
   let _ft_pelletStyle = 0;
   let _ft_pelletEmojiOn = false;
   let _ft_pelletImgurOn = false;
@@ -403,8 +402,6 @@
   _ft_hotkeyTargetedFeed = t.hotkeyTargetedFeed || '';
   _ft_hotkeyFavoriteEmote = t.hotkeyFavoriteEmote || '';
   _ft_favoriteEmoteCode = t.favoriteEmoteCode || '';
-  _ft_countryFlagCode = String(t.countryFlagCode || '').trim().toUpperCase();
-  globalThis.__ryuCountryFlagCode = _ft_countryFlagCode;
   _ft_pelletEmojiOn = !!t.pelletEmojiOn;
   _ft_pelletImgurOn = !!t.pelletImgurOn;
   _ft_pelletStyle = t.useDefault ? 0 : (_ft_pelletImgurOn ? 2 : (_ft_pelletEmojiOn ? 1 : 0));
@@ -471,7 +468,6 @@
   if (theme.boldName    === undefined) theme.boldName    = false;
   if (theme.hideFlags   === undefined) theme.hideFlags   = false;
   if (theme.leftwardTag === undefined) theme.leftwardTag = true;
-  if (theme.countryFlagCode === undefined) theme.countryFlagCode = '';
   if (theme.lbColor       === undefined) theme.lbColor       = '#ffffff';
   if (theme.commanderText === undefined) theme.commanderText = '';
   if (theme.commanderImgur === undefined) theme.commanderImgur = '';
@@ -590,37 +586,8 @@
   globalThis.__ryuCommanderSpamOn = theme.commanderSpamOn !== false;
   globalThis.__ryuKillFeedOn = !theme.useDefault && !!theme.killFeedOn;
   globalThis.__ryuKfProfilePic = theme.kfAvatar || '';
-  globalThis.__ryuCountryFlagCode = String(theme.countryFlagCode || '').trim().toUpperCase();
   if (globalThis.__ryuBroadcastKfAvatar && globalThis.__ryuKfProfilePic) globalThis.__ryuBroadcastKfAvatar();
   _ryuKillFeedApply();
-
-  function _countryCodeToFlagEmoji(code) {
-    const normalized = String(code || '').trim().toUpperCase();
-    if (!/^[A-Z]{2}$/.test(normalized)) return '';
-    return String.fromCodePoint(
-      0x1F1E6 + normalized.charCodeAt(0) - 65,
-      0x1F1E6 + normalized.charCodeAt(1) - 65
-    );
-  }
-
-  function _applyCountryFlagState(code) {
-    const normalized = String(code || '').trim().toUpperCase();
-    const emoji = _countryCodeToFlagEmoji(normalized);
-    globalThis.__ryuCountryFlagCode = normalized;
-    try {
-      const localPlayer = globalThis.__Be && globalThis.__Be._1059;
-      if (localPlayer) {
-        if (localPlayer._ryuOriginalFlag === undefined) localPlayer._ryuOriginalFlag = String(localPlayer._7890 || '');
-        localPlayer._7890 = emoji || localPlayer._ryuOriginalFlag || '';
-      }
-    } catch (_) {}
-  }
-  globalThis.__ryuApplyCountryFlagState = _applyCountryFlagState;
-  _applyCountryFlagState(theme.countryFlagCode || '');
-  setInterval(function() {
-    if (!_ft_countryFlagCode && !globalThis.__ryuCountryFlagCode) return;
-    _applyCountryFlagState(_ft_countryFlagCode || globalThis.__ryuCountryFlagCode || '');
-  }, 500);
 
   function refreshLeftwardTagMap() {
     try {

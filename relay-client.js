@@ -57,10 +57,6 @@
   globalThis.__ryuRelayBadgesByUser = globalThis.__ryuRelayBadgesByUser || {};
   globalThis.__ryuRelayBadgesByClient = globalThis.__ryuRelayBadgesByClient || {};
   globalThis.__ryuRelayBadgeVersion = globalThis.__ryuRelayBadgeVersion || 0;
-  globalThis.__ryuRelayPresenceVersion = globalThis.__ryuRelayPresenceVersion || 0;
-  globalThis.__ryuRelayChatMessages = Array.isArray(globalThis.__ryuRelayChatMessages) ? globalThis.__ryuRelayChatMessages : [];
-  globalThis.__ryuRelayChatVersion = globalThis.__ryuRelayChatVersion || 0;
-  globalThis.__ryuRelayChatSeen = globalThis.__ryuRelayChatSeen || {};
   globalThis.__ryuBadgeEntitlements = globalThis.__ryuBadgeEntitlements || {};
   Object.keys(RYU_BADGE_CONFIG).forEach(function(badgeId) {
     try {
@@ -115,12 +111,6 @@
     try {
       const el = document.getElementById('mame-ssb-mode-selected');
       return String(el && el.textContent || '').trim();
-    } catch (_) { return ''; }
-  }
-
-  function getOwnCountryFlagCode() {
-    try {
-      return String(globalThis.__ryuCountryFlagCode || '').trim().toUpperCase();
     } catch (_) { return ''; }
   }
 
@@ -245,7 +235,6 @@
       gameName: getGameName(),
       modeName: getModeName(),
       gameTag: getGameTag(),
-      countryFlagCode: getOwnCountryFlagCode(),
       activeBadge: getOwnActiveBadge()
     };
     var _joinMM = globalThis.__ryuMMOwn;
@@ -257,7 +246,7 @@
     if (_joinWS && _joinWS.url && _joinWS.url.includes('ryuten.io')) {
       payload.serverUrl = _joinWS.url.split('?')[0] + '?';
     }
-    const sig = 'join|' + payload.accountId + '|' + payload.user + '|' + payload.gameName + '|' + payload.gameTag + '|' + payload.countryFlagCode + '|' + payload.activeBadge;
+    const sig = 'join|' + payload.accountId + '|' + payload.user + '|' + payload.gameName + '|' + payload.gameTag + '|' + payload.activeBadge;
     if (!force && sig === _lastPresenceSig) return true;
     _lastPresenceSig = sig;
     try {
@@ -421,43 +410,6 @@
     });
   }
 
-  function getRelayChatKey(msg) {
-    if (!msg || msg.type !== 'ryu_chat') return '';
-    return [
-      String(msg.clientId || '').trim(),
-      String(msg.sentAt || '').trim(),
-      String(msg.user || '').trim(),
-      String(msg.text || '').trim()
-    ].join('|');
-  }
-
-  function rememberRelayChatMessage(msg) {
-    if (!msg || msg.type !== 'ryu_chat') return;
-    var user = String(msg.user || '').trim();
-    var text = String(msg.text || '').trim();
-    if (!user || !text) return;
-    var key = getRelayChatKey(msg);
-    if (!key || globalThis.__ryuRelayChatSeen[key]) return;
-    globalThis.__ryuRelayChatSeen[key] = 1;
-    var list = globalThis.__ryuRelayChatMessages;
-    list.push({
-      type: 'ryu_chat',
-      clientId: String(msg.clientId || '').trim(),
-      user: user,
-      text: text,
-      sentAt: Number(msg.sentAt) || Date.now(),
-      countryFlagCode: String(msg.countryFlagCode || '').trim().toUpperCase()
-    });
-    if (list.length > 120) {
-      var removed = list.splice(0, list.length - 120);
-      removed.forEach(function(entry) {
-        var oldKey = getRelayChatKey(entry);
-        if (oldKey) delete globalThis.__ryuRelayChatSeen[oldKey];
-      });
-    }
-    globalThis.__ryuRelayChatVersion++;
-  }
-
   function normalizeUser(user) {
     return String(user || '').trim().toLowerCase();
   }
@@ -577,26 +529,23 @@
   function applyPresenceIdentity(msg) {
     if (!msg || !msg.clientId) return;
     globalThis.__ryuPresenceInfo[msg.clientId] = globalThis.__ryuPresenceInfo[msg.clientId] || {};
-    var info = globalThis.__ryuPresenceInfo[msg.clientId];
-    var prevGameName = info.gameName || '';
+    var prevGameName = globalThis.__ryuPresenceInfo[msg.clientId].gameName || '';
     if (prevGameName && msg.gameName && prevGameName !== msg.gameName) {
       delete globalThis.__ryuRelayBadgesByUser[normalizeUser(prevGameName)];
     }
-    if (msg.user) info.user = msg.user;
-    if (msg.gameName) info.gameName = msg.gameName;
-    if (msg.modeName) info.modeName = msg.modeName;
-    if (msg.gameTag) info.gameTag = msg.gameTag;
+    if (msg.user) globalThis.__ryuPresenceInfo[msg.clientId].user = msg.user;
+    if (msg.gameName) globalThis.__ryuPresenceInfo[msg.clientId].gameName = msg.gameName;
+    if (msg.modeName) globalThis.__ryuPresenceInfo[msg.clientId].modeName = msg.modeName;
+    if (msg.gameTag) globalThis.__ryuPresenceInfo[msg.clientId].gameTag = msg.gameTag;
     // The relay server verifies accountId against the DB and re-stamps it on the
     // message before broadcasting, so presence accountId is trustworthy.
-    if (msg.accountId) info.accountId = msg.accountId;
-    if (Object.prototype.hasOwnProperty.call(msg, 'countryFlagCode')) info.countryFlagCode = String(msg.countryFlagCode || '').trim().toUpperCase();
+    if (msg.accountId) globalThis.__ryuPresenceInfo[msg.clientId].accountId = msg.accountId;
     // Minimap position (0-100 percent) — used to show off-screen relay users on map.
-    if (typeof msg.mmX === 'number') info.mmX = msg.mmX;
-    if (typeof msg.mmY === 'number') info.mmY = msg.mmY;
+    if (typeof msg.mmX === 'number') globalThis.__ryuPresenceInfo[msg.clientId].mmX = msg.mmX;
+    if (typeof msg.mmY === 'number') globalThis.__ryuPresenceInfo[msg.clientId].mmY = msg.mmY;
     // Game server URL — used by the Users Online panel join button.
-    if (msg.serverUrl) info.serverUrl = msg.serverUrl;
-    else if (msg.type === 'leave') info.serverUrl = '';
-    globalThis.__ryuRelayPresenceVersion++;
+    if (msg.serverUrl) globalThis.__ryuPresenceInfo[msg.clientId].serverUrl = msg.serverUrl;
+    else if (msg.type === 'leave') globalThis.__ryuPresenceInfo[msg.clientId].serverUrl = '';
   }
 
   function rememberRelayBadgeIdentity(msg) {
@@ -750,8 +699,8 @@
     // replay recent cmd/emote
     if (Array.isArray(recent)) {
       for (const m of recent) {
+        if (m.clientId === _clientId) continue;
         if (m.type === 'cmd' && ((m.text && m.text.trim()) || m.imageUrl)) {
-          if (m.clientId === _clientId) continue;
           // Sender spam state controls sender effects. Receiver setting can still
           // opt out locally, but it must not re-enable spam for a sender who disabled it.
           if (m.spamOn !== false && globalThis.__ryuCommanderSpamOn !== false && globalThis.__ryuCommanderPingLocal) globalThis.__ryuCommanderPingLocal(m.x, m.y);
@@ -761,9 +710,6 @@
         }
         if (m.type === 'emote' && m.code) {
           if (globalThis.__ryuSpawnRemoteEmote) globalThis.__ryuSpawnRemoteEmote(m);
-        }
-        if (m.type === 'ryu_chat' && m.text && m.user) {
-          rememberRelayChatMessage(m);
         }
       }
     }
@@ -798,7 +744,6 @@
         clearRelayBadge('', msg.clientId);
       }
       delete globalThis.__ryuPresenceInfo[msg.clientId];
-      globalThis.__ryuRelayPresenceVersion++;
     }
 
     if (msg.type === 'cmd' && ((msg.text && msg.text.trim()) || msg.imageUrl)) {
@@ -819,10 +764,6 @@
 
     if (msg.type === 'kf_avatar' && msg.clientId !== _clientId && msg.user && msg.pic) {
       if (globalThis.__ryuKfAvatarMap) globalThis.__ryuKfAvatarMap[msg.user] = msg.pic;
-    }
-
-    if (msg.type === 'ryu_chat' && msg.text && msg.user) {
-      rememberRelayChatMessage(msg);
     }
 
     if (msg.type === 'badge_state') {
@@ -928,7 +869,6 @@
       gameName: getGameName(),
       modeName: getModeName(),
       gameTag: getGameTag(),
-      countryFlagCode: getOwnCountryFlagCode(),
       activeBadge: getOwnActiveBadge()
     };
     // Always include current minimap position so other clients can track us
@@ -942,7 +882,7 @@
     if (_presWS && _presWS.url && _presWS.url.includes('ryuten.io')) {
       payload.serverUrl = _presWS.url.split('?')[0] + '?';
     }
-    const sig = payload.user + '|' + payload.gameName + '|' + payload.gameTag + '|' + payload.countryFlagCode + '|' + payload.activeBadge;
+    const sig = payload.user + '|' + payload.gameName + '|' + payload.gameTag + '|' + payload.activeBadge;
     if (!force && sig === _lastPresenceSig) return true;
     _lastPresenceSig = sig;
     try {
@@ -1012,30 +952,6 @@
     client._ryuRelayBadge = byUser || byClient || '';
     return client._ryuRelayBadge;
   };
-  globalThis.__ryuGetRelayFlagForClient = function(client) {
-    if (!client) return '';
-    if (client._9710) return getOwnCountryFlagCode();
-    var version = globalThis.__ryuRelayPresenceVersion || 0;
-    if (client._ryuRelayFlagVersion === version) return client._ryuRelayFlagCode || '';
-    var nameKey = normalizeUser(client._6988);
-    var matchedClientId = '';
-    if (nameKey) {
-      var presenceInfo = globalThis.__ryuPresenceInfo || {};
-      for (var cid in presenceInfo) {
-        if (!Object.prototype.hasOwnProperty.call(presenceInfo, cid)) continue;
-        var info = presenceInfo[cid];
-        if (normalizeUser(info && info.gameName) === nameKey) {
-          matchedClientId = cid;
-          break;
-        }
-      }
-    }
-    client._ryuRelayClientId = matchedClientId || client._ryuRelayClientId || '';
-    var byClientInfo = client._ryuRelayClientId ? globalThis.__ryuPresenceInfo[client._ryuRelayClientId] : null;
-    client._ryuRelayFlagVersion = version;
-    client._ryuRelayFlagCode = String(byClientInfo && byClientInfo.countryFlagCode || '').trim().toUpperCase();
-    return client._ryuRelayFlagCode;
-  };
   globalThis.__ryuHasBadgeEntitlement = hasBadgeEntitlement;
   globalThis.__ryuRequestBadgeEquip = function(badgeId, password) {
     if (badgeId && !isRyuBadgeId(badgeId)) return false;
@@ -1099,28 +1015,6 @@
       gameName: getGameName(),
       gameTag: getGameTag()
     });
-  };
-
-  globalThis.__ryuRelayChatSendText = function(text) {
-    var nextText = String(text || '').replace(/\r/g, '').trim();
-    if (!nextText) return false;
-    const user = getUsername();
-    if (!user || user === 'Unknown') return false;
-    const msg = {
-      type: 'ryu_chat',
-      user: user,
-      text: nextText.slice(0, 280),
-      sentAt: Date.now(),
-      clientId: _clientId,
-      countryFlagCode: getOwnCountryFlagCode()
-    };
-    if (!relaySendDirect(msg)) {
-      if (globalThis.__ryuShowToast) globalThis.__ryuShowToast('Ryutheme relay is not connected yet.', 'error');
-      return false;
-    }
-    rememberRelayChatMessage(msg);
-    notifyMessageSubscribers(msg);
-    return true;
   };
 
   connectRelay();

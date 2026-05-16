@@ -6,8 +6,6 @@
   const STYLE_ID  = 'ryu-chatbox-theme';
   const HEADER_ID = 'ryu-chbx-header';
   const STORAGE_KEY = 'ryuTheme';
-  const RELAY_CHAT_PANEL_ID = 'ryu-relay-chat-panel';
-  const RELAY_CHAT_STYLE_ID = 'ryu-relay-chat-style';
 
   let _applied = false;
   let _msgObserver = null;
@@ -90,7 +88,6 @@
         <div class="ryu-tab ryu-tab-active" data-ch="global">GLOBAL</div>
         <div class="ryu-tab" data-ch="team">TEAM</div>
         <div class="ryu-tab" data-ch="dm">DM</div>
-        <div class="ryu-tab" data-ch="ryutheme">RYUTHEME</div>
       </div>
     `;
     const chatbox = document.getElementById('chatbox');
@@ -98,170 +95,21 @@
 
     const minBtn = document.getElementById('ryu-minimize-btn');
     const chbxBody = document.getElementById('chbx-body');
-    const nativeBottomBar = chatbox ? chatbox.querySelector('.chbx-bottom-bar') : null;
-    if (chatbox) chatbox.dataset.ryuChatCollapsed = '0';
     if (minBtn && chbxBody) {
       minBtn.addEventListener('click', function () {
-        var nextCollapsed = !(chatbox && chatbox.dataset.ryuChatCollapsed === '1');
-        if (chatbox) chatbox.dataset.ryuChatCollapsed = nextCollapsed ? '1' : '0';
-        var relayPanel = document.getElementById(RELAY_CHAT_PANEL_ID);
-        if (_activeChannel === 'ryutheme') {
-          chbxBody.style.display = 'none';
-          if (nativeBottomBar) nativeBottomBar.style.display = 'none';
-          if (relayPanel) relayPanel.style.display = nextCollapsed ? 'none' : (relayPanel.dataset.ryuVisible === '1' ? 'flex' : 'none');
-        } else {
-          chbxBody.style.display = nextCollapsed ? 'none' : '';
-          if (nativeBottomBar) nativeBottomBar.style.display = nextCollapsed ? 'none' : '';
-          if (relayPanel) relayPanel.style.display = 'none';
-        }
-        minBtn.textContent = nextCollapsed ? '\u25a1' : '_';
+        const collapsed = chbxBody.style.display === 'none';
+        chbxBody.style.display = collapsed ? '' : 'none';
+        minBtn.textContent = collapsed ? '_' : '\u25a1';
       });
     }
 
     let _activeChannel = 'global';
-    let _relayChatUnsub = null;
-
-    function escapeHtml(text) {
-      return String(text || '').replace(/[&<>"]/g, function (ch) {
-        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch] || ch;
-      });
-    }
-
-    function flagCodeToEmoji(code) {
-      var normalized = String(code || '').trim().toUpperCase();
-      if (!/^[A-Z]{2}$/.test(normalized)) return '';
-      return String.fromCodePoint(
-        0x1F1E6 + normalized.charCodeAt(0) - 65,
-        0x1F1E6 + normalized.charCodeAt(1) - 65
-      );
-    }
-
-    function getRelayChatMessages() {
-      return Array.isArray(globalThis.__ryuRelayChatMessages) ? globalThis.__ryuRelayChatMessages : [];
-    }
-
-    function addRelayUnreadBadge() {
-      var relayTab = header.querySelector('.ryu-tab[data-ch="ryutheme"]');
-      if (!relayTab || document.getElementById('ryu-relay-notif')) return;
-      var badge = document.createElement('span');
-      badge.id = 'ryu-relay-notif';
-      badge.className = 'ryu-tab-notif';
-      badge.textContent = 'NEW';
-      relayTab.appendChild(badge);
-    }
-
-    function clearRelayUnreadBadge() {
-      var badge = document.getElementById('ryu-relay-notif');
-      if (badge) badge.remove();
-    }
-
-    function ensureRelayChatPanel() {
-      var existing = document.getElementById(RELAY_CHAT_PANEL_ID);
-      if (existing) return existing;
-      var panel = document.createElement('div');
-      panel.id = RELAY_CHAT_PANEL_ID;
-      panel.dataset.ryuVisible = '0';
-      panel.innerHTML =
-        '<div class="ryu-relay-chat-messages" id="ryu-relay-chat-messages"></div>' +
-        '<div class="ryu-relay-chat-composer">' +
-          '<input id="ryu-relay-chat-input" type="text" maxlength="280" autocomplete="off" placeholder="Chat with Ryutheme users..." />' +
-          '<button id="ryu-relay-chat-send" type="button">SEND</button>' +
-        '</div>';
-      if (chatbox) chatbox.insertBefore(panel, chbxBody || nativeBottomBar || null);
-
-      function renderRelayChatMessages() {
-        var box = document.getElementById('ryu-relay-chat-messages');
-        if (!box) return;
-        var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
-        box.innerHTML = '';
-        getRelayChatMessages().forEach(function (msg) {
-          var row = document.createElement('div');
-          row.className = 'chbx-message';
-          var flag = flagCodeToEmoji(msg.countryFlagCode);
-          var sender = (flag ? flag + ' ' : '') + String(msg.user || '').trim();
-          row.innerHTML =
-            '<div class="chbx-message-time">' + new Date(Number(msg.sentAt) || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</div>' +
-            '<div class="chbx-message-sender">' + escapeHtml(sender) + ':</div>' +
-            '<div class="chbx-message-content">' + escapeHtml(msg.text || '') + '</div>';
-          box.appendChild(row);
-        });
-        colorizeAllMessages();
-        if (globalThis.__ryuApplyTimestamps) globalThis.__ryuApplyTimestamps();
-        if (atBottom) box.scrollTop = box.scrollHeight;
-      }
-
-      function sendRelayChat() {
-        var input = document.getElementById('ryu-relay-chat-input');
-        if (!input) return;
-        var value = input.value;
-        if (!globalThis.__ryuRelayChatSendText || !globalThis.__ryuRelayChatSendText(value)) return;
-        input.value = '';
-        renderRelayChatMessages();
-      }
-
-      var input = panel.querySelector('#ryu-relay-chat-input');
-      var sendBtn = panel.querySelector('#ryu-relay-chat-send');
-      if (input) {
-        input.addEventListener('keydown', function (e) {
-          e.stopPropagation();
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            sendRelayChat();
-          }
-        }, true);
-      }
-      if (sendBtn) {
-        sendBtn.addEventListener('click', function (e) {
-          e.preventDefault();
-          sendRelayChat();
-        });
-      }
-
-      if (!_relayChatUnsub && globalThis.__ryuRelaySubscribe) {
-        _relayChatUnsub = globalThis.__ryuRelaySubscribe(function (msg) {
-          if (!msg || msg.type !== 'ryu_chat') return;
-          renderRelayChatMessages();
-          if (_activeChannel !== 'ryutheme') addRelayUnreadBadge();
-        });
-      }
-
-      panel._ryuRender = renderRelayChatMessages;
-      renderRelayChatMessages();
-      return panel;
-    }
-
-    function showRelayChatPanel() {
-      var panel = ensureRelayChatPanel();
-      panel.dataset.ryuVisible = '1';
-      panel.style.display = chatbox && chatbox.dataset.ryuChatCollapsed === '1' ? 'none' : 'flex';
-      chbxBody.style.display = 'none';
-      if (nativeBottomBar) nativeBottomBar.style.display = 'none';
-      if (panel._ryuRender) panel._ryuRender();
-      clearRelayUnreadBadge();
-      var input = document.getElementById('ryu-relay-chat-input');
-      if (input) setTimeout(function () { try { input.focus(); } catch (_) {} }, 0);
-    }
-
-    function hideRelayChatPanel() {
-      var panel = document.getElementById(RELAY_CHAT_PANEL_ID);
-      if (!panel) return;
-      panel.dataset.ryuVisible = '0';
-      panel.style.display = 'none';
-      chbxBody.style.display = chatbox && chatbox.dataset.ryuChatCollapsed === '1' ? 'none' : '';
-      if (nativeBottomBar) nativeBottomBar.style.display = chatbox && chatbox.dataset.ryuChatCollapsed === '1' ? 'none' : '';
-    }
 
     function setChannel(ch) {
       _activeChannel = ch;
       header.querySelectorAll('.ryu-tab').forEach(function (t) {
         t.classList.toggle('ryu-tab-active', t.getAttribute('data-ch') === ch);
       });
-      if (ch === 'ryutheme') {
-        if (globalThis.__ryuHideDMPanel) globalThis.__ryuHideDMPanel();
-        showRelayChatPanel();
-        return;
-      }
-      hideRelayChatPanel();
       if (ch === 'team') {
         var badge = document.getElementById('ryu-team-notif');
         if (badge) badge.remove();
@@ -324,12 +172,6 @@
     if (h) h.remove();
   }
 
-  function getChatboxStyle() {
-    const theme = loadTheme();
-    const style = parseInt(theme && theme.chatboxStyle, 10);
-    return isNaN(style) ? 0 : style;
-  }
-
   function applyStyle() {
     let el = document.getElementById(STYLE_ID);
     if (!el) {
@@ -348,17 +190,16 @@
         position: fixed !important;
         left: 18px !important;
         bottom: 18px !important;
-        width: 350px;
+        width: 320px;
         font-size: 14px;
         height: auto !important;
         display: flex !important;
         flex-direction: column !important;
         z-index: 9999 !important;
         background: rgba(9,13,18,0.90) !important;
-        border: 1px solid rgba(255,255,255,0.12) !important;
-        border-radius: 4px !important;
+        border: 1px solid rgba(34,211,238,0.2) !important;
+        border-radius: 8px !important;
         overflow: hidden !important;
-        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.26) !important;
       }
 
       /* ── Header ── */
@@ -369,9 +210,9 @@
         overflow: hidden !important;
       }
       .ryu-header-inner {
-        background: rgba(255, 255, 255, 0.04) !important;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-        padding: 10px 15px !important;
+        background: rgba(34,211,238,0.05) !important;
+        border-bottom: 1px solid rgba(34,211,238,0.12) !important;
+        padding: 9px 14px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: space-between !important;
@@ -380,18 +221,18 @@
       .ryu-header-left { padding-left: 0 !important; }
       .ryu-title {
         font-family: 'Noto Sans', sans-serif !important;
-        font-size: 15px !important;
+        font-size: 13px !important;
         font-weight: 800 !important;
-        color: rgba(255, 255, 255, 0.92) !important;
+        color: rgba(34,211,238,0.9) !important;
         letter-spacing: 4px !important;
-        text-shadow: none !important;
+        text-shadow: 0 0 10px rgba(34,211,238,0.4) !important;
         text-transform: uppercase !important;
         animation: none !important;
       }
       .ryu-header-right {
         display: flex !important;
         align-items: center !important;
-        gap: 5px !important;
+        gap: 6px !important;
       }
       .ryu-live-badge { display: none !important; }
       .ryu-live-dot   { display: none !important; }
@@ -399,20 +240,20 @@
       .ryu-corner     { display: none !important; }
       .ryu-scanline   { display: none !important; }
       .ryu-minimize-btn {
-        width: 26px !important; height: 26px !important;
+        width: 22px !important; height: 22px !important;
         border-radius: 4px !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
-        background: rgba(255,255,255,0.04) !important;
-        color: rgba(255,255,255,0.5) !important;
-        font-size: 13px !important;
+        border: 1px solid rgba(34,211,238,0.2) !important;
+        background: transparent !important;
+        color: rgba(34,211,238,0.45) !important;
+        font-size: 11px !important;
         display: flex !important; align-items: center !important; justify-content: center !important;
         cursor: pointer !important;
         user-select: none !important;
         transition: all 0.15s !important;
       }
       .ryu-minimize-btn:hover {
-        background: rgba(255,255,255,0.08) !important;
-        color: rgba(255,255,255,0.96) !important;
+        background: rgba(34,211,238,0.08) !important;
+        color: #22d3ee !important;
       }
 
       /* ── Tabs ── */
@@ -422,35 +263,33 @@
         background: transparent !important;
         padding: 0 10px 8px !important;
         flex-shrink: 0 !important;
-        border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+        border-bottom: 1px solid rgba(34,211,238,0.1) !important;
       }
       .ryu-tab {
-        padding: 6px 14px !important;
+        padding: 4px 12px !important;
         border-radius: 4px !important;
         font-family: 'Noto Sans', sans-serif !important;
-        font-size: 11px !important;
+        font-size: 9px !important;
         font-weight: 700 !important;
         letter-spacing: 1.5px !important;
-        color: rgba(255,255,255,0.48) !important;
+        color: rgba(255,255,255,0.25) !important;
         cursor: pointer !important;
         border: none !important;
         text-transform: uppercase !important;
         transition: all 0.15s !important;
         text-shadow: none !important;
-        background: rgba(255,255,255,0.03) !important;
-        border: 1px solid rgba(255,255,255,0.06) !important;
+        background: transparent !important;
       }
       .ryu-tab:last-child { border-right: none !important; }
       .ryu-tab-active {
-        background: rgba(255,255,255,0.08) !important;
-        border-color: rgba(255,255,255,0.10) !important;
-        color: rgba(255,255,255,0.92) !important;
+        background: rgba(34,211,238,0.12) !important;
+        color: #22d3ee !important;
         text-shadow: none !important;
       }
       .ryu-tab-active::after { display: none !important; }
       .ryu-tab:hover:not(.ryu-tab-active) {
-        background: rgba(255,255,255,0.06) !important;
-        color: rgba(255,255,255,0.96) !important;
+        background: rgba(34,211,238,0.06) !important;
+        color: rgba(255,255,255,0.55) !important;
       }
       .ryu-tab-notif {
         display: inline-flex !important;
@@ -473,7 +312,7 @@
 
       /* ── Message body ── */
       .chbx-body {
-        background: rgba(10, 12, 14, 0.96) !important;
+        background: transparent !important;
         border: none !important;
         position: relative !important;
         flex: none !important;
@@ -485,7 +324,7 @@
       .chbx-body::-webkit-scrollbar { width: 0px !important; display: none !important; }
       .chbx-body { scrollbar-width: none !important; }
       .chbx-body-scrollbar { background: transparent !important; width: 2px !important; }
-      .chbx-body-scrollbar-slider { background: rgba(255,255,255,0.16) !important; border-radius: 2px !important; }
+      .chbx-body-scrollbar-slider { background: rgba(34,211,238,0.2) !important; border-radius: 2px !important; }
 
       /* ── Messages ── */
       .chbx-message {
@@ -493,26 +332,24 @@
         align-items: baseline !important;
         gap: 6px !important;
         flex-wrap: wrap !important;
-        padding: 7px 10px !important;
-        border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+        padding: 7px 14px !important;
+        border-bottom: 1px solid rgba(34,211,238,0.05) !important;
         position: relative !important;
         animation: ryu-msg-in 0.18s ease !important;
         line-height: 1.4 !important;
       }
-      .chbx-message:hover { background: rgba(255,255,255,0.06) !important; }
+      .chbx-message:hover { background: rgba(34,211,238,0.03) !important; }
       .chbx-message::before { display: none !important; }
       .chbx-message-time {
         display: inline !important;
         font-size: 12px !important;
-        color: rgba(255,255,255,0.5) !important;
+        color: rgba(34,211,238,0.6) !important;
         letter-spacing: 0.5px !important;
         font-family: 'Noto Sans', sans-serif !important;
         flex-shrink: 0 !important;
-        min-width: 42px !important;
-        text-align: left !important;
       }
       .chbx-message-sender {
-        font-size: 15px !important;
+        font-size: 13px !important;
         font-weight: 700 !important;
         letter-spacing: 0.3px !important;
         display: inline !important;
@@ -520,7 +357,7 @@
         font-family: 'Noto Sans', sans-serif !important;
       }
       .chbx-message-content {
-        color: rgba(255,255,255,0.92) !important;
+        color: rgba(255,255,255,0.86) !important;
         font-size: 13px !important;
         line-height: 1.5 !important;
         display: inline !important;
@@ -554,7 +391,7 @@
         user-select: none !important;
       }
       .ryu-emoji-btn:hover {
-        background: rgba(255,255,255,0.10) !important;
+        background: rgba(34,211,238,0.1) !important;
       }
 
       /* ── Bottom bar ── */
@@ -564,101 +401,50 @@
         justify-content: flex-end !important;
         gap: 0.5em !important;
         padding: 0.3em 0.7em !important;
-        background: rgba(255,255,255,0.04) !important;
-        border-top: 1px solid rgba(255,255,255,0.08) !important;
+        background: rgba(9,13,18,0.95) !important;
+        border-top: 1px solid rgba(34,211,238,0.1) !important;
         flex-shrink: 0 !important;
         position: relative !important;
         z-index: 10 !important;
       }
       .chbx-dropup { display: none !important; }
-      .chbx-bottom-btn { color: rgba(255,255,255,0.5) !important; font-size: 17px !important; cursor: pointer !important; min-width:18px !important; min-height:18px !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; }
-      .chbx-bottom-btn:hover { color: rgba(255,255,255,0.96) !important; text-shadow: none !important; }
+      .chbx-bottom-btn { color: rgba(34,211,238,0.5) !important; font-size: 13px !important; cursor: pointer !important; }
+      .chbx-bottom-btn:hover { color: #22d3ee !important; text-shadow: none !important; }
       .chbx-dropup-arrow { display: none !important; }
 
       /* ── Chat input ── */
-      #ryu-relay-chat-panel {
-        display: none;
-        flex-direction: column;
-        flex: 1 1 auto;
-        min-height: 0;
-        background: rgba(10, 12, 14, 0.96);
-      }
-      .ryu-relay-chat-messages {
-        flex: 1 1 auto;
-        min-height: 0;
-        overflow-y: auto;
-        background: rgba(10, 12, 14, 0.96);
-      }
-      .ryu-relay-chat-messages::-webkit-scrollbar { width: 0 !important; display: none !important; }
-      .ryu-relay-chat-composer {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 10px;
-        border-top: 1px solid rgba(255,255,255,0.08);
-        background: rgba(255,255,255,0.04);
-      }
-      #ryu-relay-chat-input {
-        flex: 1 1 auto;
-        min-width: 0;
-        background: rgba(255,255,255,0.04);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 6px;
-        color: rgba(255,255,255,0.92);
-        font-family: 'Noto Sans', sans-serif;
-        font-size: 13px;
-        font-weight: 500;
-        padding: 7px 10px;
-        outline: none;
-        box-sizing: border-box;
-      }
-      #ryu-relay-chat-send {
-        flex-shrink: 0;
-        border: 1px solid rgba(255,255,255,0.1);
-        background: rgba(255,255,255,0.06);
-        color: rgba(255,255,255,0.9);
-        border-radius: 6px;
-        padding: 7px 11px;
-        font-family: 'Noto Sans', sans-serif;
-        font-size: 10px;
-        font-weight: 800;
-        letter-spacing: 1.2px;
-        cursor: pointer;
-      }
-      #ryu-relay-chat-send:hover { background: rgba(255,255,255,0.10); }
-
       #chat-input {
-        background: rgba(255,255,255,0.04) !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
+        background: rgba(9,13,18,0.85) !important;
+        border: 1px solid rgba(34,211,238,0.18) !important;
         border-radius: 6px !important;
-        color: rgba(255,255,255,0.92) !important;
+        color: rgba(255,255,255,0.85) !important;
         font-family: 'Noto Sans', sans-serif !important;
-        font-size: 14px !important;
+        font-size: 12px !important;
         font-weight: 500 !important;
         padding: 7px 10px !important;
         outline: none !important;
         box-sizing: border-box !important;
         transition: border-color 0.2s, box-shadow 0.2s !important;
-        caret-color: rgba(255,255,255,0.92) !important;
+        caret-color: #22d3ee !important;
         letter-spacing: 0.2px !important;
       }
       #chat-input::placeholder {
-        color: rgba(255,255,255,0.5) !important;
+        color: rgba(34,211,238,0.25) !important;
         font-style: normal !important;
         letter-spacing: 0.3px !important;
       }
       #chat-input:focus {
-        border-color: rgba(255,255,255,0.18) !important;
-        box-shadow: 0 0 0 2px rgba(255,255,255,0.05), 0 0 10px rgba(0,0,0,0.12) !important;
-        background: rgba(255,255,255,0.05) !important;
+        border-color: rgba(34,211,238,0.45) !important;
+        box-shadow: 0 0 0 2px rgba(34,211,238,0.07), 0 0 10px rgba(34,211,238,0.1) !important;
+        background: rgba(9,13,18,0.95) !important;
       }
 
 
 
       /* ── Settings menu ── */
       #chbx-settings-menu {
-        background: rgba(10, 12, 14, 0.96) !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
+        background: rgba(9,13,18,0.97) !important;
+        border: 1px solid rgba(34,211,238,0.2) !important;
         border-radius: 8px !important;
         box-shadow: none !important;
         font-family: 'Noto Sans', sans-serif !important;
@@ -668,45 +454,45 @@
       .chbxsm-title {
         font-family: 'Noto Sans', sans-serif !important;
         font-size: 9px !important; font-weight: 800 !important;
-        color: rgba(255,255,255,0.92) !important;
+        color: rgba(34,211,238,0.8) !important;
         letter-spacing: 3px !important; text-shadow: none !important;
-        border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+        border-bottom: 1px solid rgba(34,211,238,0.12) !important;
         padding: 10px 14px 8px !important; margin: 0 !important;
         text-transform: uppercase !important;
         display: flex !important; align-items: center !important; justify-content: space-between !important;
-        background: rgba(255,255,255,0.04) !important;
+        background: rgba(34,211,238,0.04) !important;
         border-radius: 8px 8px 0 0 !important;
       }
-      .chbxsm-close { color: rgba(255,255,255,0.5) !important; cursor: pointer !important; transition: color 0.15s !important; }
-      .chbxsm-close:hover { color: rgba(255,255,255,0.96) !important; text-shadow: none !important; }
+      .chbxsm-close { color: rgba(34,211,238,0.4) !important; cursor: pointer !important; transition: color 0.15s !important; }
+      .chbxsm-close:hover { color: #22d3ee !important; text-shadow: none !important; }
       .chbxsm-body { padding: 4px 0 !important; }
       .chbxsm-label { color: rgba(255,255,255,0.55) !important; font-size: 12px !important; font-family: 'Noto Sans', sans-serif !important; }
       .chbxsm-checkbox {
         width: 14px !important; height: 14px !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
-        background: rgba(255,255,255,0.04) !important; border-radius: 3px !important;
+        border: 1px solid rgba(34,211,238,0.25) !important;
+        background: transparent !important; border-radius: 3px !important;
         display: flex !important; align-items: center !important; justify-content: center !important;
         color: transparent !important; flex-shrink: 0 !important;
       }
       .iconfont-checkbox {
-        color: rgba(255,255,255,0.92) !important; text-shadow: none !important;
-        background: rgba(255,255,255,0.10) !important;
-        border-color: rgba(255,255,255,0.18) !important;
+        color: #22d3ee !important; text-shadow: none !important;
+        background: rgba(34,211,238,0.12) !important;
+        border-color: rgba(34,211,238,0.5) !important;
       }
       .chbxsm-row {
         display: flex !important; align-items: center !important; gap: 10px !important;
         padding: 9px 14px !important;
-        border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+        border-bottom: 1px solid rgba(34,211,238,0.06) !important;
         cursor: pointer !important; transition: background 0.15s !important;
       }
       .chbxsm-row::before { display: none !important; }
-      .chbxsm-row:hover { background: rgba(255,255,255,0.06) !important; }
+      .chbxsm-row:hover { background: rgba(34,211,238,0.04) !important; }
       .chbxsm-row:hover .chbxsm-label { color: rgba(255,255,255,0.8) !important; }
 
       /* ── Mute list ── */
       .chatbox-mute-list {
-        background: rgba(10, 12, 14, 0.96) !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
+        background: rgba(9,13,18,0.97) !important;
+        border: 1px solid rgba(34,211,238,0.2) !important;
         border-radius: 8px !important;
         box-shadow: none !important; animation: none !important;
         min-width: 220px !important;
@@ -714,30 +500,30 @@
       .chbxml-title {
         font-family: 'Noto Sans', sans-serif !important;
         font-size: 9px !important; font-weight: 800 !important;
-        color: rgba(255,255,255,0.92) !important; letter-spacing: 3px !important;
+        color: rgba(34,211,238,0.8) !important; letter-spacing: 3px !important;
         text-shadow: none !important;
         padding: 10px 14px 8px !important;
-        border-bottom: 1px solid rgba(255,255,255,0.08) !important;
-        background: rgba(255,255,255,0.04) !important;
+        border-bottom: 1px solid rgba(34,211,238,0.12) !important;
+        background: rgba(34,211,238,0.04) !important;
         border-radius: 8px 8px 0 0 !important;
         display: flex !important; align-items: center !important; justify-content: space-between !important;
         text-transform: uppercase !important;
       }
-      .chbxml-close { color: rgba(255,255,255,0.5) !important; cursor: pointer !important; transition: color 0.15s !important; }
-      .chbxml-close:hover { color: rgba(255,255,255,0.96) !important; text-shadow: none !important; }
+      .chbxml-close { color: rgba(34,211,238,0.4) !important; cursor: pointer !important; transition: color 0.15s !important; }
+      .chbxml-close:hover { color: #22d3ee !important; text-shadow: none !important; }
       .chbxml-body { background: transparent !important; max-height: 200px !important; }
       .chbxml-body-content { padding: 4px 0 !important; }
       .chbxml-body-scrollbar { width: 2px !important; background: transparent !important; }
-      .chbxml-body-scrollbar-slider { background: rgba(255,255,255,0.16) !important; border-radius: 2px !important; }
+      .chbxml-body-scrollbar-slider { background: rgba(34,211,238,0.2) !important; border-radius: 2px !important; }
       .chbx-mute-list {
-        background: rgba(10, 12, 14, 0.96) !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
+        background: rgba(9,13,18,0.97) !important;
+        border: 1px solid rgba(34,211,238,0.2) !important;
         border-radius: 8px !important; box-shadow: none !important;
       }
       .chbx-mute-list-title {
         font-family: 'Noto Sans', sans-serif !important;
         font-size: 9px !important; font-weight: 800 !important;
-        color: rgba(255,255,255,0.92) !important; letter-spacing: 3px !important;
+        color: rgba(34,211,238,0.8) !important; letter-spacing: 3px !important;
         text-shadow: none !important; padding-left: 8px !important;
       }
       .chbx-mute-list-item {
@@ -745,367 +531,36 @@
         font-size: 12px !important; font-weight: 600 !important;
         color: rgba(255,255,255,0.55) !important; letter-spacing: 0.3px !important;
         padding: 8px 14px !important;
-        border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+        border-bottom: 1px solid rgba(34,211,238,0.06) !important;
         transition: background 0.15s !important;
       }
       .chbx-mute-list-item::before { display: none !important; }
-      .chbx-mute-list-item:hover { background: rgba(255,255,255,0.06) !important; color: rgba(255,255,255,0.92) !important; }
+      .chbx-mute-list-item:hover { background: rgba(34,211,238,0.05) !important; color: rgba(255,255,255,0.8) !important; }
 
       /* ── Dropup ── */
       .chbx-dropup {
-        background: rgba(255,255,255,0.04) !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
+        background: rgba(9,13,18,0.85) !important;
+        border: 1px solid rgba(34,211,238,0.2) !important;
         border-radius: 4px !important; padding: 2px 8px !important;
       }
       .chbx-dropup-selected {
-        color: rgba(255,255,255,0.92) !important; font-weight: 700 !important;
+        color: #22d3ee !important; font-weight: 700 !important;
         letter-spacing: 1.5px !important; font-size: 9px !important;
         text-shadow: none !important; font-family: 'Noto Sans', sans-serif !important;
       }
       .chbx-dropup-list {
-        background: rgba(10, 12, 14, 0.96) !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
+        background: rgba(9,13,18,0.98) !important;
+        border: 1px solid rgba(34,211,238,0.2) !important;
         border-radius: 6px !important; box-shadow: none !important;
       }
       .chbx-dropup-list-item {
-        color: rgba(255,255,255,0.74) !important;
+        color: rgba(34,211,238,0.6) !important;
         letter-spacing: 1.5px !important; font-size: 10px !important;
         padding: 6px 12px !important;
-        border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+        border-bottom: 1px solid rgba(34,211,238,0.06) !important;
         text-transform: uppercase !important; font-family: 'Noto Sans', sans-serif !important;
       }
-      .chbx-dropup-list-item:hover { background: rgba(255,255,255,0.06) !important; color: rgba(255,255,255,0.96) !important; }
-      #chatbox[data-ryu-chat-density="compact"] .ryu-header-inner {
-        padding: 8px 12px !important;
-      }
-      #chatbox[data-ryu-chat-density="compact"] .ryu-title {
-        font-size: 13px !important;
-        letter-spacing: 2.5px !important;
-      }
-      #chatbox[data-ryu-chat-density="compact"] .ryu-minimize-btn {
-        width: 24px !important;
-        height: 24px !important;
-        font-size: 12px !important;
-      }
-      #chatbox[data-ryu-chat-density="compact"] .ryu-tabs {
-        padding: 0 8px 6px !important;
-        gap: 3px !important;
-      }
-      #chatbox[data-ryu-chat-density="compact"] .ryu-tab {
-        padding: 5px 11px !important;
-        font-size: 10px !important;
-        letter-spacing: 1px !important;
-      }
-      #chatbox[data-ryu-chat-density="compact"] .chbx-message {
-        gap: 5px !important;
-        padding: 5px 8px !important;
-      }
-      #chatbox[data-ryu-chat-density="compact"] .chbx-message-time {
-        min-width: 34px !important;
-        font-size: 11px !important;
-      }
-      #chatbox[data-ryu-chat-density="compact"] .chbx-message-sender {
-        font-size: 13px !important;
-      }
-      #chatbox[data-ryu-chat-density="compact"] .chbx-message-content {
-        font-size: 12px !important;
-        line-height: 1.4 !important;
-      }
-      #chatbox[data-ryu-chat-density="compact"] .chbx-bottom-btn {
-        font-size: 15px !important;
-        min-width: 16px !important;
-        min-height: 16px !important;
-      }
-      #chatbox[data-ryu-chat-density="compact"] #chat-input {
-        font-size: 13px !important;
-        padding: 6px 9px !important;
-      }
-      #chatbox[data-ryu-chat-density="tight"] .ryu-header-inner {
-        padding: 7px 10px !important;
-      }
-      #chatbox[data-ryu-chat-density="tight"] .ryu-title {
-        font-size: 12px !important;
-        letter-spacing: 1.8px !important;
-      }
-      #chatbox[data-ryu-chat-density="tight"] .ryu-minimize-btn {
-        width: 22px !important;
-        height: 22px !important;
-        font-size: 11px !important;
-      }
-      #chatbox[data-ryu-chat-density="tight"] .ryu-tabs {
-        padding: 0 7px 5px !important;
-        gap: 2px !important;
-      }
-      #chatbox[data-ryu-chat-density="tight"] .ryu-tab {
-        padding: 4px 9px !important;
-        font-size: 9px !important;
-        letter-spacing: 0.8px !important;
-      }
-      #chatbox[data-ryu-chat-density="tight"] .chbx-message {
-        gap: 4px !important;
-        padding: 4px 7px !important;
-      }
-      #chatbox[data-ryu-chat-density="tight"] .chbx-message-time {
-        min-width: 30px !important;
-        font-size: 10px !important;
-      }
-      #chatbox[data-ryu-chat-density="tight"] .chbx-message-sender {
-        font-size: 12px !important;
-      }
-      #chatbox[data-ryu-chat-density="tight"] .chbx-message-content {
-        font-size: 11px !important;
-        line-height: 1.35 !important;
-      }
-      #chatbox[data-ryu-chat-density="tight"] .chbx-bottom-bar {
-        padding: 0.25em 0.55em !important;
-      }
-      #chatbox[data-ryu-chat-density="tight"] .chbx-bottom-btn {
-        font-size: 14px !important;
-        min-width: 15px !important;
-        min-height: 15px !important;
-      }
-      #chatbox[data-ryu-chat-density="tight"] #chat-input {
-        font-size: 12px !important;
-        padding: 5px 8px !important;
-      }
-      #chatbox[data-ryu-chat-density="tight"] .ryu-emoji-btn {
-        font-size: 16px !important;
-        padding: 3px 5px !important;
-      }
-
-      ${getChatboxStyle() === 1 ? `
-      /* Agar.io style finish */
-      #chatbox {
-        background: rgba(226, 234, 237, 0.78) !important;
-        border: 1px solid rgba(40, 52, 60, 0.22) !important;
-        border-radius: 3px !important;
-        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.16) !important;
-      }
-      #ryu-chbx-header {
-        border-radius: 3px 3px 0 0 !important;
-      }
-      .ryu-header-inner {
-        background: rgba(232, 239, 242, 0.58) !important;
-        border-bottom: 1px solid rgba(40, 52, 60, 0.18) !important;
-        padding: 10px 14px !important;
-      }
-      .ryu-title {
-        color: rgba(38, 45, 50, 0.88) !important;
-        font-size: 15px !important;
-        letter-spacing: 1.4px !important;
-        text-shadow: none !important;
-      }
-      .ryu-minimize-btn {
-        width: 26px !important;
-        height: 26px !important;
-        border-radius: 2px !important;
-        border: 1px solid rgba(40, 52, 60, 0.22) !important;
-        background: rgba(255, 255, 255, 0.45) !important;
-        color: rgba(42, 50, 56, 0.64) !important;
-      }
-      .ryu-minimize-btn:hover {
-        background: rgba(229, 235, 238, 0.9) !important;
-        color: rgba(28, 32, 36, 0.92) !important;
-      }
-      .ryu-tabs {
-        gap: 3px !important;
-        padding: 0 10px 8px !important;
-        border-bottom: 1px solid rgba(40, 52, 60, 0.14) !important;
-      }
-      .ryu-tab {
-        background: rgba(211, 221, 226, 0.48) !important;
-        border: 1px solid rgba(40, 52, 60, 0.14) !important;
-        border-radius: 2px !important;
-        color: rgba(58, 66, 72, 0.54) !important;
-        font-size: 11px !important;
-        letter-spacing: 0.8px !important;
-      }
-      .ryu-tab-active {
-        background: rgba(238, 243, 245, 0.74) !important;
-        color: rgba(28, 32, 36, 0.88) !important;
-        border-color: rgba(40, 52, 60, 0.24) !important;
-      }
-      .ryu-tab:hover:not(.ryu-tab-active) {
-        background: rgba(255, 255, 255, 0.72) !important;
-        color: rgba(38, 45, 50, 0.76) !important;
-      }
-      .ryu-tab-notif {
-        background: rgba(230, 55, 72, 0.9) !important;
-        border: 1px solid rgba(150, 25, 36, 0.32) !important;
-        box-shadow: none !important;
-      }
-      .chbx-body {
-        background: rgba(234, 240, 243, 0.22) !important;
-      }
-      .chbx-body-scrollbar-slider,
-      .chbxml-body-scrollbar-slider {
-        background: rgba(40, 52, 60, 0.24) !important;
-      }
-      .chbx-message {
-        border-bottom: 1px solid rgba(40, 52, 60, 0.08) !important;
-        padding: 7px 10px !important;
-      }
-      .chbx-message:hover {
-        background: rgba(238, 243, 245, 0.30) !important;
-      }
-      .chbx-message-time {
-        color: rgba(0, 0, 0, 0.74) !important;
-      }
-      .chbx-message-sender {
-        color: rgba(32, 38, 43, 0.88) !important;
-        text-shadow: none !important;
-        font-size: 15px !important;
-      }
-      .chbx-message-content {
-        color: rgba(24, 28, 32, 0.82) !important;
-      }
-      #ryu-emoji-bar {
-        background: transparent !important;
-        border: none !important;
-        border-radius: 0 !important;
-        box-shadow: none !important;
-        padding: 0 !important;
-      }
-      .ryu-emoji-btn:hover {
-        background: rgba(255, 255, 255, 0.18) !important;
-      }
-      .chbx-bottom-bar {
-        background: rgba(221, 230, 234, 0.72) !important;
-        border-top: 1px solid rgba(40, 52, 60, 0.16) !important;
-      }
-      .chbx-bottom-btn {
-        color: rgba(50, 58, 64, 0.56) !important;
-      }
-      .chbx-bottom-btn:hover {
-        color: rgba(20, 24, 28, 0.90) !important;
-      }
-      #chat-input {
-        background: rgba(238, 243, 245, 0.78) !important;
-        border: 1px solid rgba(40, 52, 60, 0.22) !important;
-        border-radius: 3px !important;
-        color: rgba(24, 28, 32, 0.90) !important;
-        caret-color: rgba(24, 28, 32, 0.86) !important;
-      }
-      #chat-input::placeholder {
-        color: rgba(54, 62, 68, 0.42) !important;
-      }
-      #chat-input:focus {
-        background: rgba(248, 250, 251, 0.90) !important;
-        border-color: rgba(40, 52, 60, 0.38) !important;
-        box-shadow: 0 0 0 2px rgba(40, 52, 60, 0.08) !important;
-      }
-      #chbx-settings-menu,
-      .chatbox-mute-list,
-      .chbx-mute-list,
-      .chbx-dropup-list {
-        background: rgba(245, 249, 250, 0.96) !important;
-        border: 1px solid rgba(40, 52, 60, 0.22) !important;
-        border-radius: 3px !important;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16) !important;
-      }
-      .chbxsm-title,
-      .chbxml-title {
-        background: rgba(229, 235, 238, 0.86) !important;
-        color: rgba(32, 38, 43, 0.82) !important;
-        border-bottom: 1px solid rgba(40, 52, 60, 0.16) !important;
-        border-radius: 3px 3px 0 0 !important;
-        letter-spacing: 1.4px !important;
-      }
-      .chbxsm-close,
-      .chbxml-close {
-        color: rgba(50, 58, 64, 0.52) !important;
-      }
-      .chbxsm-close:hover,
-      .chbxml-close:hover {
-        color: rgba(20, 24, 28, 0.9) !important;
-      }
-      .chbxsm-label,
-      .chbx-mute-list-item {
-        color: rgba(32, 38, 43, 0.74) !important;
-      }
-      .chbxsm-checkbox {
-        border-color: rgba(40, 52, 60, 0.26) !important;
-        background: rgba(255, 255, 255, 0.66) !important;
-      }
-      .iconfont-checkbox {
-        color: rgba(32, 38, 43, 0.88) !important;
-        background: rgba(201, 209, 214, 0.74) !important;
-        border-color: rgba(40, 52, 60, 0.34) !important;
-      }
-      .chbxsm-row {
-        border-bottom: 1px solid rgba(40, 52, 60, 0.08) !important;
-      }
-      .chbxsm-row:hover,
-      .chbx-mute-list-item:hover,
-      .chbx-dropup-list-item:hover {
-        background: rgba(40, 52, 60, 0.07) !important;
-        color: rgba(20, 24, 28, 0.90) !important;
-      }
-      .chbx-dropup {
-        background: rgba(255, 255, 255, 0.72) !important;
-        border: 1px solid rgba(40, 52, 60, 0.20) !important;
-        border-radius: 3px !important;
-      }
-      .chbx-dropup-selected,
-      .chbx-dropup-list-item {
-        color: rgba(32, 38, 43, 0.74) !important;
-        letter-spacing: 0.8px !important;
-      }
-      #ryu-dm-panel {
-        background: rgba(245, 249, 250, 0.94) !important;
-        border: 1px solid rgba(40, 52, 60, 0.24) !important;
-        border-radius: 3px !important;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16) !important;
-      }
-      #ryu-dm-inbox-hdr,
-      #ryu-dm-convo-hdr {
-        background: rgba(229, 235, 238, 0.86) !important;
-        border-bottom: 1px solid rgba(40, 52, 60, 0.16) !important;
-      }
-      #ryu-dm-inbox-back,
-      #ryu-dm-back {
-        color: rgba(50, 58, 64, 0.62) !important;
-      }
-      #ryu-dm-inbox-back:hover,
-      #ryu-dm-back:hover {
-        color: rgba(20, 24, 28, 0.92) !important;
-      }
-      #ryu-dm-inbox-title,
-      #ryu-dm-convo-name {
-        color: rgba(32, 38, 43, 0.84) !important;
-      }
-      .ryu-dm-contact {
-        border-bottom: 1px solid rgba(40, 52, 60, 0.10) !important;
-      }
-      .ryu-dm-contact:hover {
-        background: rgba(40, 52, 60, 0.07) !important;
-      }
-      .ryu-dm-avatar {
-        background: rgba(255, 255, 255, 0.70) !important;
-        border: 1px solid rgba(40, 52, 60, 0.22) !important;
-        color: rgba(32, 38, 43, 0.86) !important;
-      }
-      .ryu-dm-contact-name {
-        color: rgba(24, 28, 32, 0.88) !important;
-      }
-      .ryu-dm-contact-preview,
-      .ryu-dm-empty {
-        color: rgba(54, 62, 68, 0.52) !important;
-      }
-      .ryu-dm-msg-mine .ryu-dm-bubble {
-        background: rgba(215, 222, 226, 0.92) !important;
-        border: 1px solid rgba(40, 52, 60, 0.18) !important;
-        color: rgba(20, 24, 28, 0.88) !important;
-      }
-      .ryu-dm-msg-theirs .ryu-dm-bubble {
-        background: rgba(255, 255, 255, 0.86) !important;
-        border: 1px solid rgba(40, 52, 60, 0.14) !important;
-        color: rgba(20, 24, 28, 0.82) !important;
-      }
-      .ryu-dm-time {
-        color: rgba(54, 62, 68, 0.38) !important;
-      }
-      ` : ''}
+      .chbx-dropup-list-item:hover { background: rgba(34,211,238,0.06) !important; color: #22d3ee !important; }
     `;
   }
 
@@ -1161,30 +616,25 @@
     if (el) el.remove();
   }
 
+  function applyChatScale(val) {
+    const chatbox = document.getElementById('chatbox');
+    if (!chatbox) return;
+    // skip the normal scale if user has set a drag zoom
+    const t = loadTheme();
+    if (t.chatDragW || t.chatDragH) return;
+    const s = 0.3 + (val / 100) * 1.5;
+    chatbox.style.zoom = '';
+    chatbox.style.transformOrigin = 'bottom left';
+    chatbox.style.transform = 'scale(' + s.toFixed(3) + ')';
+    chatbox.dataset.ryuChatDragZoom = '';
+  }
+
   function getChatDragBaseWidth() {
-    return 350;
+    return 320;
   }
 
   function getChatDragBaseHeight() {
     return 200;
-  }
-
-  function getChatAutoViewportZoom() {
-    const viewportW = window.innerWidth || 0;
-    const viewportH = window.innerHeight || 0;
-    if (viewportH <= 820 || viewportW <= 1440) return 0.72;
-    if (viewportH <= 980 || viewportW <= 1680) return 0.82;
-    if (viewportH <= 1120 || viewportW <= 1920) return 0.9;
-    return 1;
-  }
-
-  function syncChatDensity(chatbox, width) {
-    if (!chatbox) return;
-    const resolvedWidth = Math.round(width || chatbox.getBoundingClientRect().width || getChatDragBaseWidth());
-    let density = 'normal';
-    if (resolvedWidth <= 250) density = 'tight';
-    else if (resolvedWidth <= 305) density = 'compact';
-    chatbox.dataset.ryuChatDensity = density;
   }
 
   function setChatDragSize(w, h) {
@@ -1192,21 +642,22 @@
     if (ov) ov.remove();
     const baseW = getChatDragBaseWidth();
     const baseH = getChatDragBaseHeight();
+    const widthRatio = w ? w / baseW : 1;
+    const heightRatio = h ? h / baseH : 1;
+    const zoomRaw = (widthRatio + heightRatio) / 2;
+    const zoom = Math.max(0.55, Math.min(1.45, Math.round(zoomRaw * 1000) / 1000));
     const chatbox = document.getElementById('chatbox');
     if (!chatbox) return;
-    const nextW = Math.max(220, Math.min(500, Math.round(w || baseW)));
-    const nextH = Math.max(140, Math.min(360, Math.round(h || baseH)));
-    chatbox.dataset.ryuChatDragZoom = '';
-    chatbox.style.width = nextW + 'px';
+    chatbox.dataset.ryuChatDragZoom = String(zoom);
+    chatbox.style.width = baseW + 'px';
     chatbox.style.height = 'auto';
     chatbox.style.maxHeight = 'none';
     chatbox.style.overflow = 'hidden';
     chatbox.style.zoom = '';
-    chatbox.style.transformOrigin = '';
-    chatbox.style.transform = '';
+    chatbox.style.transformOrigin = 'bottom left';
+    chatbox.style.transform = 'scale(' + zoom + ')';
     const body = chatbox.querySelector('.chbx-body');
-    if (body) body.style.height = nextH + 'px';
-    syncChatDensity(chatbox, nextW);
+    if (body) body.style.height = baseH + 'px';
   }
 
   function addChatboxResizeHandle() {
@@ -1215,39 +666,7 @@
 
     // apply saved drag dimensions if present
     const t0 = loadTheme();
-    if (t0.chatDragW || t0.chatDragH) {
-      setChatDragSize(t0.chatDragW || getChatDragBaseWidth(), t0.chatDragH || getChatDragBaseHeight());
-    } else {
-      const autoZoom = getChatAutoViewportZoom();
-      if (autoZoom < 0.999) setChatDragSize(getChatDragBaseWidth() * autoZoom, getChatDragBaseHeight() * autoZoom);
-      else syncChatDensity(chatbox, getChatDragBaseWidth());
-    }
-
-    function applyAutoChatSize() {
-      const savedTheme = loadTheme();
-      if (savedTheme.chatDragW || savedTheme.chatDragH) return;
-      const liveChatbox = document.getElementById('chatbox');
-      if (!liveChatbox) return;
-      const autoZoom = getChatAutoViewportZoom();
-      if (autoZoom >= 0.999) {
-        liveChatbox.dataset.ryuChatDragZoom = '';
-        liveChatbox.style.width = getChatDragBaseWidth() + 'px';
-        liveChatbox.style.height = 'auto';
-        liveChatbox.style.maxHeight = 'none';
-        liveChatbox.style.overflow = 'hidden';
-        liveChatbox.style.transform = '';
-        liveChatbox.style.transformOrigin = '';
-        const liveBody = liveChatbox.querySelector('.chbx-body');
-        if (liveBody) liveBody.style.height = getChatDragBaseHeight() + 'px';
-        syncChatDensity(liveChatbox, getChatDragBaseWidth());
-        return;
-      }
-      setChatDragSize(getChatDragBaseWidth() * autoZoom, getChatDragBaseHeight() * autoZoom);
-    }
-    if (!globalThis.__ryuChatAutoResizeBound) {
-      globalThis.__ryuChatAutoResizeBound = true;
-      window.addEventListener('resize', applyAutoChatSize);
-    }
+    if (t0.chatDragW || t0.chatDragH) setChatDragSize(t0.chatDragW || getChatDragBaseWidth(), t0.chatDragH || getChatDragBaseHeight());
 
     const handle = document.createElement('div');
     handle.id = 'ryu-chat-resize-handle';
@@ -1258,8 +677,8 @@
       'padding:3px;opacity:0.3;transition:opacity 0.15s;user-select:none;';
     handle.innerHTML =
       '<svg width="12" height="12" viewBox="0 0 12 12" fill="none">' +
-      '<line x1="11" y1="11" x2="1" y2="1" stroke="rgba(255,255,255,0.92)" stroke-width="1.8" stroke-linecap="round"/>' +
-      '<line x1="11" y1="6" x2="6" y2="1" stroke="rgba(255,255,255,0.92)" stroke-width="1.8" stroke-linecap="round"/>' +
+      '<line x1="11" y1="11" x2="1" y2="1" stroke="rgba(34,211,238,0.9)" stroke-width="1.8" stroke-linecap="round"/>' +
+      '<line x1="11" y1="6" x2="6" y2="1" stroke="rgba(34,211,238,0.9)" stroke-width="1.8" stroke-linecap="round"/>' +
       '</svg>';
     chatbox.appendChild(handle);
 
@@ -1274,11 +693,11 @@
 
       const startX = e.clientX;
       const startY = e.clientY;
-      const chatBody = chatbox.querySelector('.chbx-body');
+      const startZoom = parseFloat(chatbox.dataset.ryuChatDragZoom || chatbox.style.zoom || '1') || 1;
       const baseW = getChatDragBaseWidth();
       const baseH = getChatDragBaseHeight();
-      let curW = parseFloat(chatbox.style.width) || chatbox.getBoundingClientRect().width || baseW;
-      let curH = parseFloat((chatBody && chatBody.style.height) || '') || (chatBody ? chatBody.getBoundingClientRect().height : 0) || baseH;
+      let curW = baseW * startZoom;
+      let curH = baseH * startZoom;
       let pendingW = curW;
       let pendingH = curH;
       let dragFrame = null;
@@ -1292,9 +711,14 @@
       }
 
       function onMove(ev) {
-        // top-right: right/up grow the chat, left/down shrink it.
-        pendingW = Math.max(220, Math.min(500, curW + (ev.clientX - startX)));
-        pendingH = Math.max(140, Math.min(360, curH + (startY - ev.clientY)));
+        // top-right: right/up grow the whole chatbox, left/down shrink it.
+        const dxRatio = (ev.clientX - startX) / baseW;
+        const dyRatio = (startY - ev.clientY) / baseH;
+        const targetZoom = Math.max(0.55, Math.min(1.45, startZoom + ((dxRatio + dyRatio) / 2)));
+        curW = baseW * targetZoom;
+        curH = baseH * targetZoom;
+        pendingW = curW;
+        pendingH = curH;
         scheduleResizeWrite();
       }
 
@@ -1307,8 +731,6 @@
           cancelAnimationFrame(dragFrame);
           dragFrame = null;
         }
-        curW = pendingW;
-        curH = pendingH;
         setChatDragSize(curW, curH);
         try {
           const saved = loadTheme();
@@ -1339,6 +761,7 @@
         globalThis.__ryuUserColors[myName.textContent.trim()] = t.chatNameColor;
       }
     })();
+    applyChatScale(loadTheme().chatScale || 50);
     setTimeout(addChatboxResizeHandle, 150);
 
     // context menu
@@ -1406,13 +829,13 @@
 
         const menu = document.createElement('div');
         menu.id = MENU_ID;
-        menu.style.cssText = 'position:fixed;z-index:2147483647;background:rgba(10,12,14,0.96);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:4px 0;min-width:160px;box-shadow:0 4px 20px rgba(0,0,0,0.6);';
+        menu.style.cssText = 'position:fixed;z-index:2147483647;background:rgba(9,13,18,0.97);border:1px solid rgba(34,211,238,0.2);border-radius:6px;padding:4px 0;min-width:160px;box-shadow:0 4px 20px rgba(0,0,0,0.6);';
 
         options.forEach(function (opt) {
           const item = document.createElement('div');
           item.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer;font-family:"Noto Sans",sans-serif;font-size:12px;font-weight:500;color:rgba(255,255,255,0.75);letter-spacing:0.3px;transition:background 0.1s,color 0.1s;';
-          item.innerHTML = '<i class="come-option-icon iconfont ' + opt.icon + '" style="font-size:13px;color:rgba(255,255,255,0.65);width:16px;text-align:center;"></i><span>' + opt.label + '</span>';
-          item.addEventListener('mouseenter', function () { item.style.background = 'rgba(255,255,255,0.06)'; item.style.color = '#ffffff'; });
+          item.innerHTML = '<i class="come-option-icon iconfont ' + opt.icon + '" style="font-size:13px;color:rgba(34,211,238,0.7);width:16px;text-align:center;"></i><span>' + opt.label + '</span>';
+          item.addEventListener('mouseenter', function () { item.style.background = 'rgba(34,211,238,0.08)'; item.style.color = '#ffffff'; });
           item.addEventListener('mouseleave', function () { item.style.background = ''; item.style.color = 'rgba(255,255,255,0.75)'; });
           item.addEventListener('mousedown', function (ev) {
             ev.preventDefault();
@@ -1451,7 +874,7 @@
           display: none;
           position: fixed;
           background: rgba(9,13,18,0.97);
-          border: 1px solid rgba(255,255,255,0.1);
+          border: 1px solid rgba(34,211,238,0.2);
           border-radius: 8px;
           overflow: hidden;
           flex-direction: column;
@@ -1463,16 +886,16 @@
         .ryu-dm-contact {
           display: flex; align-items: center; gap: 12px;
           padding: 14px 16px; cursor: pointer;
-          border-bottom: 1px solid rgba(255,255,255,0.08);
+          border-bottom: 1px solid rgba(34,211,238,0.12);
           transition: background 0.1s;
         }
-        .ryu-dm-contact:hover { background: rgba(255,255,255,0.06); }
+        .ryu-dm-contact:hover { background: rgba(34,211,238,0.06); }
         .ryu-dm-avatar {
           width: 38px; height: 38px; border-radius: 50%;
-          background: rgba(255,255,255,0.08);
-          border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(34,211,238,0.12);
+          border: 1px solid rgba(34,211,238,0.25);
           display: flex; align-items: center; justify-content: center;
-          font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.92);
+          font-size: 15px; font-weight: 700; color: #22d3ee;
           flex-shrink: 0; text-transform: uppercase;
         }
         .ryu-dm-contact-info { flex: 1; min-width: 0; }
@@ -1492,15 +915,15 @@
         #ryu-dm-inbox-hdr {
           display: flex; align-items: center; gap: 8px;
           padding: 8px 12px; flex-shrink: 0;
-          border-bottom: 1px solid rgba(255,255,255,0.08);
-          background: rgba(255,255,255,0.04);
+          border-bottom: 1px solid rgba(34,211,238,0.1);
+          background: rgba(34,211,238,0.04);
         }
         #ryu-dm-inbox-back {
-          color: rgba(255,255,255,0.5); cursor: pointer;
+          color: rgba(34,211,238,0.6); cursor: pointer;
           font-size: 15px; line-height: 1; padding: 2px 4px;
           transition: color 0.1s; flex-shrink: 0;
         }
-        #ryu-dm-inbox-back:hover { color: rgba(255,255,255,0.96); }
+        #ryu-dm-inbox-back:hover { color: #22d3ee; }
         #ryu-dm-inbox-title {
           font-size: 12px; font-weight: 700;
           color: rgba(255,255,255,0.85);
@@ -1510,15 +933,15 @@
         #ryu-dm-convo-hdr {
           display: flex; align-items: center; gap: 8px;
           padding: 8px 12px; flex-shrink: 0;
-          border-bottom: 1px solid rgba(255,255,255,0.08);
-          background: rgba(255,255,255,0.04);
+          border-bottom: 1px solid rgba(34,211,238,0.1);
+          background: rgba(34,211,238,0.04);
         }
         #ryu-dm-back {
-          color: rgba(255,255,255,0.5); cursor: pointer;
+          color: rgba(34,211,238,0.6); cursor: pointer;
           font-size: 15px; line-height: 1; padding: 2px 4px;
           transition: color 0.1s; flex-shrink: 0;
         }
-        #ryu-dm-back:hover { color: rgba(255,255,255,0.96); }
+        #ryu-dm-back:hover { color: #22d3ee; }
         #ryu-dm-convo-name {
           font-size: 12px; font-weight: 700;
           color: rgba(255,255,255,0.85);
@@ -1536,8 +959,8 @@
           line-height: 1.4; word-break: break-word; border-radius: 12px;
         }
         .ryu-dm-msg-mine .ryu-dm-bubble {
-          background: rgba(255,255,255,0.08);
-          border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(34,211,238,0.18);
+          border: 1px solid rgba(34,211,238,0.28);
           color: rgba(255,255,255,0.9);
           border-bottom-right-radius: 3px;
         }
@@ -1550,96 +973,6 @@
         .ryu-dm-time {
           font-size: 9px; color: rgba(255,255,255,0.22);
           margin-top: 2px; padding: 0 2px;
-        }
-
-        body.ryu-agar-map-dark-ui #chatbox {
-          background: rgba(8, 10, 12, 0.92) !important;
-          border: 1px solid rgba(255, 255, 255, 0.12) !important;
-          border-radius: 4px !important;
-          box-shadow: 0 10px 28px rgba(0, 0, 0, 0.26) !important;
-        }
-        body.ryu-agar-map-dark-ui #ryu-chbx-header,
-        body.ryu-agar-map-dark-ui .ryu-header-inner,
-        body.ryu-agar-map-dark-ui .chbx-bottom-bar,
-        body.ryu-agar-map-dark-ui #ryu-dm-inbox-hdr,
-        body.ryu-agar-map-dark-ui #ryu-dm-convo-hdr {
-          background: rgba(255, 255, 255, 0.04) !important;
-          border-color: rgba(255, 255, 255, 0.08) !important;
-        }
-        body.ryu-agar-map-dark-ui .ryu-title,
-        body.ryu-agar-map-dark-ui .ryu-tab-active,
-        body.ryu-agar-map-dark-ui .chbx-message-sender,
-        body.ryu-agar-map-dark-ui .chbx-message-content,
-        body.ryu-agar-map-dark-ui #chat-input,
-        body.ryu-agar-map-dark-ui .chbxsm-label,
-        body.ryu-agar-map-dark-ui .chbx-mute-list-item,
-        body.ryu-agar-map-dark-ui #ryu-dm-inbox-title,
-        body.ryu-agar-map-dark-ui #ryu-dm-convo-name,
-        body.ryu-agar-map-dark-ui .ryu-dm-contact-name,
-        body.ryu-agar-map-dark-ui .ryu-dm-bubble {
-          color: rgba(255, 255, 255, 0.92) !important;
-          text-shadow: none !important;
-        }
-        body.ryu-agar-map-dark-ui .ryu-tab {
-          background: rgba(255,255,255,0.03) !important;
-          border: 1px solid rgba(255,255,255,0.06) !important;
-          color: rgba(255,255,255,0.48) !important;
-        }
-        body.ryu-agar-map-dark-ui .ryu-tab-active {
-          background: rgba(255,255,255,0.08) !important;
-          border-color: rgba(255,255,255,0.1) !important;
-        }
-        body.ryu-agar-map-dark-ui .ryu-tab:hover:not(.ryu-tab-active),
-        body.ryu-agar-map-dark-ui .chbx-message:hover,
-        body.ryu-agar-map-dark-ui .chbxsm-row:hover,
-        body.ryu-agar-map-dark-ui .chbx-mute-list-item:hover,
-        body.ryu-agar-map-dark-ui .chbx-dropup-list-item:hover,
-        body.ryu-agar-map-dark-ui .ryu-dm-contact:hover {
-          background: rgba(255,255,255,0.06) !important;
-          color: rgba(255,255,255,0.96) !important;
-        }
-        body.ryu-agar-map-dark-ui .chbx-body,
-        body.ryu-agar-map-dark-ui #ryu-dm-panel,
-        body.ryu-agar-map-dark-ui #ryu-dm-messages,
-        body.ryu-agar-map-dark-ui #chbx-settings-menu,
-        body.ryu-agar-map-dark-ui .chatbox-mute-list,
-        body.ryu-agar-map-dark-ui .chbx-mute-list,
-        body.ryu-agar-map-dark-ui .chbx-dropup-list {
-          background: rgba(10, 12, 14, 0.96) !important;
-          border-color: rgba(255,255,255,0.1) !important;
-          box-shadow: 0 10px 28px rgba(0,0,0,0.24) !important;
-        }
-        body.ryu-agar-map-dark-ui .chbx-message,
-        body.ryu-agar-map-dark-ui .chbxsm-row,
-        body.ryu-agar-map-dark-ui .chbx-mute-list-item,
-        body.ryu-agar-map-dark-ui .ryu-dm-contact {
-          border-bottom-color: rgba(255,255,255,0.06) !important;
-        }
-        body.ryu-agar-map-dark-ui .chbx-message-time,
-        body.ryu-agar-map-dark-ui .ryu-minimize-btn,
-        body.ryu-agar-map-dark-ui .chbx-bottom-btn,
-        body.ryu-agar-map-dark-ui .chbxsm-close,
-        body.ryu-agar-map-dark-ui .chbxml-close,
-        body.ryu-agar-map-dark-ui #ryu-dm-back,
-        body.ryu-agar-map-dark-ui #ryu-dm-inbox-back,
-        body.ryu-agar-map-dark-ui .ryu-dm-contact-preview,
-        body.ryu-agar-map-dark-ui .ryu-dm-time,
-        body.ryu-agar-map-dark-ui .ryu-dm-empty,
-        body.ryu-agar-map-dark-ui #chat-input::placeholder {
-          color: rgba(255,255,255,0.5) !important;
-        }
-        body.ryu-agar-map-dark-ui .ryu-minimize-btn,
-        body.ryu-agar-map-dark-ui #chat-input,
-        body.ryu-agar-map-dark-ui .chbxsm-checkbox,
-        body.ryu-agar-map-dark-ui .ryu-dm-msg-theirs .ryu-dm-bubble,
-        body.ryu-agar-map-dark-ui .ryu-dm-msg-mine .ryu-dm-bubble {
-          background: rgba(255,255,255,0.04) !important;
-          border-color: rgba(255,255,255,0.1) !important;
-        }
-        body.ryu-agar-map-dark-ui .ryu-dm-avatar {
-          background: rgba(255,255,255,0.08) !important;
-          border-color: rgba(255,255,255,0.12) !important;
-          color: rgba(255,255,255,0.96) !important;
         }
       `;
       document.head.appendChild(s);
@@ -1841,7 +1174,6 @@
 
       document.addEventListener('keydown', function (e) {
         if (e.key !== 'Enter') return;
-        if (globalThis.__ryuUiBlockingActive && globalThis.__ryuUiBlockingActive()) return;
         if (!_openDmKey || !panel.classList.contains('ryu-dm-open')) return;
         if (globalThis.__ryuB_ && typeof globalThis.__ryuB_._6306 === 'function') {
           globalThis.__ryuB_._6306(_openDmKey);
@@ -1900,8 +1232,6 @@
     removeStyle();
     removeHeader();
     stopObserver();
-    var relayPanel = document.getElementById(RELAY_CHAT_PANEL_ID);
-    if (relayPanel) relayPanel.remove();
     const chatbox = document.getElementById('chatbox');
     if (chatbox) {
       const rh = document.getElementById('ryu-chat-resize-handle');
@@ -1919,19 +1249,18 @@
   }
 
   let _lastChatboxOn = null;
-  let _lastChatboxStyle = null;
+  let _lastChatScale = null;
   setInterval(function () {
     const t = loadTheme();
     const on = !!t.chatboxThemeOn && !t.useDefault;
-    const style = parseInt(t.chatboxStyle || 0, 10) || 0;
     if (on !== _lastChatboxOn) {
       _lastChatboxOn = on;
       if (on) applyAll();
       else removeAll();
     }
-    if (on && style !== _lastChatboxStyle) {
-      _lastChatboxStyle = style;
-      applyStyle();
+    if (on) {
+      const sc = t.chatScale || 50;
+      if (sc !== _lastChatScale) { _lastChatScale = sc; applyChatScale(sc); }
     }
   }, 500);
 
